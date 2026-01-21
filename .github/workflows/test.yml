@@ -1,0 +1,41 @@
+name: CI
+  permissions:
+    contents: read
+  on:
+    push:
+    pull_request:
+    workflow_dispatch:
+
+  env:
+    FOUNDRY_PROFILE: ci
+
+  jobs:
+    check:
+      name: Foundry project
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v5
+          with:
+            persist-credentials: false
+
+        - name: Install Foundry
+          uses: foundry-rs/foundry-toolchain@v1
+
+        - name: Show Forge version
+          run: forge --version
+
+        - name: Install dependencies
+          run: |
+            forge install --no-commit foundry-rs/forge-std@v1.12.0
+            forge install --no-commit OpenZeppelin/openzeppelin-contracts@v5.5.0
+            forge install --no-commit LayerZero-Labs/LayerZero-v2@ab9b083410b9359285a5756807e1b6145d4711a7
+            forge install --no-commit GNSPS/solidity-bytes-utils@v0.8.1
+
+        - name: Run Forge fmt
+          run: forge fmt --check
+
+        - name: Run Forge build
+          run: forge build --sizes
+
+        - name: Run Forge tests
+          run: forge test -vvv

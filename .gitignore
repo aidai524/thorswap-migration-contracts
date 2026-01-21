@@ -1,0 +1,28 @@
+# Compiler files
+cache/
+out/
+
+# Dependencies (installed via `forge install`)
+lib/
+
+# Ignores development broadcast logs
+!/broadcast
+/broadcast/*/31337/
+/broadcast/**/dry-run/
+# Do not commit local anvil/mainnet-fork broadcast run files (chainId=1).
+/broadcast/Deploy.s.sol/1/run-*.json
+
+# Docs
+docs/
+
+# Dotenv file
+.env
+
+# Generated deployment outputs
+deployments/addresses.json
+
+# Local python venvs (e.g. for Slither)
+.venv*/
+
+# macOS
+.DS_Store
