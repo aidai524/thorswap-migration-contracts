@@ -604,13 +604,13 @@ contract xMETROUnitTest is Test {
 
         vm.prank(contributor);
         vm.expectRevert(bytes("xMETRO: not contributor"));
-        xmetro.stakeContributor(40 ether);
+        xmetro.stakeContributor(40 ether, contributor);
 
         xmetro.setContributor(contributor, true);
 
         uint256 t0 = block.timestamp;
         vm.prank(contributor);
-        xmetro.stakeContributor(40 ether);
+        xmetro.stakeContributor(40 ether, contributor);
 
         assertEq(xmetro.contributorVestingCount(contributor), 1);
         xMETRO.VestingSchedule memory s0 = xmetro.contributorVesting(contributor, 0);

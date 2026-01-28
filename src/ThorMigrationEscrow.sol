@@ -191,6 +191,7 @@ contract ThorMigrationEscrow is Ownable, Pausable, ReentrancyGuard {
     /// @notice Set ratios (onlyOwner, 1e18 scaled).
     function setRatios(uint256 newRatio10M, uint256 newRatio3M, uint256 newRatioYThor) external onlyOwner {
         require(newRatio10M > 0 && newRatio3M > 0 && newRatioYThor > 0, "ThorEscrow: bad ratio");
+        require(ratio10M == 0 && ratio3M == 0 && ratioYThor == 0, "ThorEscrow: ratios locked");
         ratio10M = newRatio10M;
         ratio3M = newRatio3M;
         ratioYThor = newRatioYThor;

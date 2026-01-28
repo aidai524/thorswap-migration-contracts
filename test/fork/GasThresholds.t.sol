@@ -159,7 +159,7 @@ contract GasThresholdsForkTest is Test {
 
         for (uint256 i = 0; i < len; i++) {
             vm.prank(user);
-            xmetro.stakeContributor(1 ether);
+            xmetro.stakeContributor(1 ether, user);
         }
 
         vm.warp(block.timestamp + xmetro.CONTRIBUTOR_CLIFF() + (xmetro.CONTRIBUTOR_DURATION() / 2));

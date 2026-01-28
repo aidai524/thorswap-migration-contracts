@@ -202,7 +202,7 @@ contract xMETROFuzzTest is Test {
 
         for (uint256 i = 0; i < nSchedules; i++) {
             vm.prank(contributor);
-            xmetro.stakeContributor(amountPer);
+            xmetro.stakeContributor(amountPer, contributor);
         }
 
         uint256 startTime = block.timestamp + xmetro.CONTRIBUTOR_CLIFF();

@@ -37,7 +37,7 @@ Purpose: Core staking + migration locking/vesting + reward distribution + option
 - `withdrawUnlockedYThor(uint256 maxSchedules) external returns (uint256 amountOut)`
   - Withdraws any currently-vested yTHOR-migration principal as `METRO`.
 
-- `stakeContributor(uint256 amount) external`
+- `stakeContributor(uint256 amount, address receiver) external`
   - Creates a contributor vesting position by staking `METRO` (only whitelisted contributors).
 
 - `withdrawUnlockedContributor(uint256 maxSchedules) external returns (uint256 amountOut)`
@@ -218,7 +218,7 @@ Purpose: Custodies THOR/yTHOR and creates locked/vesting positions in `xMETRO` u
   - Updates bucket deadlines for THOR migration (owner-only).
 
 - `setRatios(uint256 newRatio10M, uint256 newRatio3M, uint256 newRatioYThor) external`
-  - Updates conversion ratios (1e18-scaled, owner-only).
+  - Sets conversion ratios (1e18-scaled, owner-only, write-once; subsequent calls revert).
 
 - `setCaps(uint256 newCap10M, uint256 newCap3M) external`
   - Updates mint caps for THOR buckets (denominated in minted `METRO`, owner-only).

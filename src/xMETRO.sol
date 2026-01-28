@@ -121,10 +121,10 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
     /// @notice user => cursor for batched vesting processing.
     mapping(address => uint256) public yThorVestCursor;
 
-    /// @dev contributor => vesting schedules（6m cliff + 2.5y linear）.
+    /// @dev receiver (beneficiary) => contributor-funded vesting schedules (6m cliff + 2.5y linear).
     mapping(address => VestingSchedule[]) private _contributorVests;
 
-    /// @notice contributor => cursor for batched contributor vesting processing.
+    /// @notice receiver (beneficiary) => cursor for batched contributor vesting processing.
     mapping(address => uint256) public contributorVestCursor;
 
     /// @notice Signed reward debt per user (supports decreasing shares without underflow).
@@ -165,7 +165,7 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
     event ContributorWhitelistUpdated(address indexed contributor, bool allowed);
 
    
-    event ContributorStaked(address indexed contributor, uint256 amount, uint64 startTime, uint64 duration);
+    event ContributorStaked(address indexed contributor, address indexed receiver, uint256 amount, uint64 startTime, uint64 duration);
 
    
     event ThorUnlockedWithdrawn(address indexed user, uint256 amount);
@@ -432,19 +432,21 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
 
 
     /// @notice Stake METRO as a contributor and create a locked vesting position (6m cliff + 2.5y linear release).
-    /// @dev Only callable by `contributorWhitelist[msg.sender] == true`.
-    function stakeContributor(uint256 amount) external nonReentrant whenNotPaused {
+    /// @param receiver Address credited with the contributor vesting position.
+    /// @dev Only callable by `contributorWhitelist[msg.sender] == true`. Funds are pulled from `msg.sender`.
+    function stakeContributor(uint256 amount, address receiver) external nonReentrant whenNotPaused {
         require(contributorWhitelist[msg.sender], "xMETRO: not contributor");
         require(amount > 0, "xMETRO: zero amount");
+        require(receiver != address(0), "xMETRO: bad receiver");
 
         IERC20(address(METRO)).safeTransferFrom(msg.sender, address(this), amount);
 
         uint64 startTime = uint64(block.timestamp) + CONTRIBUTOR_CLIFF;
         uint64 duration = CONTRIBUTOR_DURATION;
-        _contributorVests[msg.sender].push(VestingSchedule(uint128(amount), 0, startTime, duration));
+        _contributorVests[receiver].push(VestingSchedule(uint128(amount), 0, startTime, duration));
 
-        _increaseLockedShares(msg.sender, amount);
-        emit ContributorStaked(msg.sender, amount, startTime, duration);
+        _increaseLockedShares(receiver, amount);
+        emit ContributorStaked(msg.sender, receiver, amount, startTime, duration);
     }
 
 

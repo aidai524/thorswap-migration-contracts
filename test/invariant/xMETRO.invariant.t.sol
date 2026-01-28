@@ -250,7 +250,7 @@ contract xMETROHandler is Test {
         }
 
         vm.prank(actor);
-        (bool ok,) = address(xmetro).call(abi.encodeCall(xMETRO.stakeContributor, (amount)));
+        (bool ok,) = address(xmetro).call(abi.encodeCall(xMETRO.stakeContributor, (amount, actor)));
         ok;
     }
 
