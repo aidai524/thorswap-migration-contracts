@@ -27,7 +27,7 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
     uint256 private constant ACC_PRECISION = 1e24;
 
 
-    uint64 public constant UNSTAKE_DELAY = 14 days;
+    uint64 public constant UNSTAKE_DELAY = 7 days;
 
 
     uint64 public constant THOR_LOCK_MONTH_SECONDS = 30 days;
@@ -56,6 +56,14 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
 
     uint256 public accRewardPerShare;
 
+    /// @notice Source category for a cooldown request entry.
+    enum UnstakeSource {
+        Free,
+        Thor,
+        YThor,
+        Contributor
+    }
+
 
     /// @notice THOR lock entry: `amount` becomes free after `endTime`.
     struct ThorLock {
@@ -71,7 +79,7 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
         uint64 duration;
     }
 
-    /// @notice Unstake request: burned freeShares re-mints underlying METRO after `unlockTime`.
+    /// @notice Unstake/withdraw request: claim METRO after `unlockTime`.
     struct UnstakeRequest {
         uint128 amount;
         uint64 unlockTime;
@@ -130,11 +138,17 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
     /// @notice Signed reward debt per user (supports decreasing shares without underflow).
     mapping(address => int256) public rewardDebt;
 
-    /// @dev user => unstake request queue.
-    mapping(address => UnstakeRequest[]) private _unstakeRequests;
+    /// @dev user => cooldown request queues (split by source).
+    mapping(address => UnstakeRequest[]) private _unstakeRequestsFree;
+    mapping(address => UnstakeRequest[]) private _unstakeRequestsThor;
+    mapping(address => UnstakeRequest[]) private _unstakeRequestsYThor;
+    mapping(address => UnstakeRequest[]) private _unstakeRequestsContributor;
 
-    /// @notice user => cursor for batched unstake request processing.
-    mapping(address => uint256) public unstakeCursor;
+    /// @notice user => cursor for batched cooldown request processing (split by source).
+    mapping(address => uint256) public unstakeCursorFree;
+    mapping(address => uint256) public unstakeCursorThor;
+    mapping(address => uint256) public unstakeCursorYThor;
+    mapping(address => uint256) public unstakeCursorContributor;
 
     event RewardDistributorUpdated(address indexed distributor);
     event SwapAdapterUpdated(address indexed swapAdapter);
@@ -148,8 +162,8 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
     event RewardsDeposited(address indexed payer, uint256 amount);
     event RewardClaimed(address indexed user, uint256 amount);
 
-    event UnstakeRequested(address indexed user, uint256 amount, uint64 unlockTime);
-    event Withdrawn(address indexed user, uint256 amount);
+    event UnstakeRequested(address indexed user, UnstakeSource indexed source, uint256 amount, uint64 unlockTime);
+    event Withdrawn(address indexed user, UnstakeSource indexed source, uint256 amount);
 
     event AutoCompounded(address indexed user, uint256 usdcIn, uint256 metroOut);
 
@@ -167,14 +181,8 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
    
     event ContributorStaked(address indexed contributor, address indexed receiver, uint256 amount, uint64 startTime, uint64 duration);
 
-   
-    event ThorUnlockedWithdrawn(address indexed user, uint256 amount);
+    event UnlockedClaimedAsShares(address indexed user, UnstakeSource indexed source, uint256 amount, uint256 sharesMinted);
 
-    
-    event YThorUnlockedWithdrawn(address indexed user, uint256 amount);
-
-    
-    event ContributorUnlockedWithdrawn(address indexed user, uint256 amount);
 
     event TokensRescued(address indexed token, address indexed to, uint256 amount);
 
@@ -200,32 +208,30 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
         mintedShares = amount;
     }
 
-    /// @notice Request unstake for free shares; burns shares immediately and starts a 14-day cooldown.
+    /// @notice Request unstake for free shares; burns shares immediately and starts a cooldown.
     function requestUnstake(uint256 amount) external nonReentrant whenNotPaused {
         require(amount > 0, "xMETRO: zero amount");
+        require(amount <= type(uint128).max, "xMETRO: amount too large");
 
         require(balanceOf(msg.sender) >= amount, "xMETRO: insufficient free");
 
         _burnFreeShares(msg.sender, amount);
 
         uint64 unlockTime = uint64(block.timestamp) + UNSTAKE_DELAY;
-        _unstakeRequests[msg.sender].push(UnstakeRequest(uint128(amount), unlockTime));
+        _unstakeRequestsFree[msg.sender].push(UnstakeRequest(uint128(amount), unlockTime));
 
-        emit UnstakeRequested(msg.sender, amount, unlockTime);
+        emit UnstakeRequested(msg.sender, UnstakeSource.Free, amount, unlockTime);
     }
 
-    /// @notice Withdraw matured unstake requests and receive METRO.
-    /// @param maxRequests Max number of matured requests to process (0 = as many as possible).
-    function withdraw(uint256 maxRequests) external nonReentrant whenNotPaused returns (uint256 amountOut) {
-        UnstakeRequest[] storage requests = _unstakeRequests[msg.sender];
-        uint256 cursor = unstakeCursor[msg.sender];
+    function _withdrawFromQueue(UnstakeRequest[] storage requests, uint256 cursor, uint256 maxRequests)
+        private
+        view
+        returns (uint256 newCursor, uint256 totalToSend)
+    {
         uint256 len = requests.length;
-
-        if (cursor >= len) return 0;
+        if (cursor >= len) return (cursor, 0);
 
         uint256 processedCount = 0;
-        uint256 totalToSend = 0;
-
         while (cursor < len) {
             UnstakeRequest memory r = requests[cursor];
             if (r.unlockTime > block.timestamp) break;
@@ -237,11 +243,77 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
             if (maxRequests != 0 && processedCount >= maxRequests) break;
         }
 
+        return (cursor, totalToSend);
+    }
+
+    /// @notice Withdraw matured cooldown requests from the Free queue and receive METRO.
+    /// @param maxRequests Max number of matured requests to process (0 = as many as possible).
+    function withdrawFree(uint256 maxRequests) external nonReentrant whenNotPaused returns (uint256 amountOut) {
+        UnstakeRequest[] storage requests = _unstakeRequestsFree[msg.sender];
+        uint256 cursor = unstakeCursorFree[msg.sender];
+        if (cursor >= requests.length) return 0;
+
+        (uint256 newCursor, uint256 totalToSend) = _withdrawFromQueue(requests, cursor, maxRequests);
+
         require(totalToSend > 0, "xMETRO: nothing to withdraw");
-        unstakeCursor[msg.sender] = cursor;
+        unstakeCursorFree[msg.sender] = newCursor;
 
         IERC20(address(METRO)).safeTransfer(msg.sender, totalToSend);
-        emit Withdrawn(msg.sender, totalToSend);
+        emit Withdrawn(msg.sender, UnstakeSource.Free, totalToSend);
+
+        return totalToSend;
+    }
+
+    /// @notice Withdraw matured cooldown requests from the Thor queue and receive METRO.
+    /// @param maxRequests Max number of matured requests to process (0 = as many as possible).
+    function withdrawThor(uint256 maxRequests) external nonReentrant whenNotPaused returns (uint256 amountOut) {
+        UnstakeRequest[] storage requests = _unstakeRequestsThor[msg.sender];
+        uint256 cursor = unstakeCursorThor[msg.sender];
+        if (cursor >= requests.length) return 0;
+
+        (uint256 newCursor, uint256 totalToSend) = _withdrawFromQueue(requests, cursor, maxRequests);
+
+        require(totalToSend > 0, "xMETRO: nothing to withdraw");
+        unstakeCursorThor[msg.sender] = newCursor;
+
+        IERC20(address(METRO)).safeTransfer(msg.sender, totalToSend);
+        emit Withdrawn(msg.sender, UnstakeSource.Thor, totalToSend);
+
+        return totalToSend;
+    }
+
+    /// @notice Withdraw matured cooldown requests from the YThor queue and receive METRO.
+    /// @param maxRequests Max number of matured requests to process (0 = as many as possible).
+    function withdrawYThor(uint256 maxRequests) external nonReentrant whenNotPaused returns (uint256 amountOut) {
+        UnstakeRequest[] storage requests = _unstakeRequestsYThor[msg.sender];
+        uint256 cursor = unstakeCursorYThor[msg.sender];
+        if (cursor >= requests.length) return 0;
+
+        (uint256 newCursor, uint256 totalToSend) = _withdrawFromQueue(requests, cursor, maxRequests);
+
+        require(totalToSend > 0, "xMETRO: nothing to withdraw");
+        unstakeCursorYThor[msg.sender] = newCursor;
+
+        IERC20(address(METRO)).safeTransfer(msg.sender, totalToSend);
+        emit Withdrawn(msg.sender, UnstakeSource.YThor, totalToSend);
+
+        return totalToSend;
+    }
+
+    /// @notice Withdraw matured cooldown requests from the Contributor queue and receive METRO.
+    /// @param maxRequests Max number of matured requests to process (0 = as many as possible).
+    function withdrawContributor(uint256 maxRequests) external nonReentrant whenNotPaused returns (uint256 amountOut) {
+        UnstakeRequest[] storage requests = _unstakeRequestsContributor[msg.sender];
+        uint256 cursor = unstakeCursorContributor[msg.sender];
+        if (cursor >= requests.length) return 0;
+
+        (uint256 newCursor, uint256 totalToSend) = _withdrawFromQueue(requests, cursor, maxRequests);
+
+        require(totalToSend > 0, "xMETRO: nothing to withdraw");
+        unstakeCursorContributor[msg.sender] = newCursor;
+
+        IERC20(address(METRO)).safeTransfer(msg.sender, totalToSend);
+        emit Withdrawn(msg.sender, UnstakeSource.Contributor, totalToSend);
 
         return totalToSend;
     }
@@ -437,6 +509,7 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
     function stakeContributor(uint256 amount, address receiver) external nonReentrant whenNotPaused {
         require(contributorWhitelist[msg.sender], "xMETRO: not contributor");
         require(amount > 0, "xMETRO: zero amount");
+        require(amount <= type(uint128).max, "xMETRO: amount too large");
         require(receiver != address(0), "xMETRO: bad receiver");
 
         IERC20(address(METRO)).safeTransferFrom(msg.sender, address(this), amount);
@@ -450,9 +523,71 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
     }
 
 
-    /// @notice Withdraw currently-unlocked THOR-migration principal (3m + 10m locks) directly as METRO.
+    /// @notice Request withdrawal for currently-unlocked THOR-migration principal (3m + 10m locks).
     /// @param maxLocks Max number of lock entries to consume per lock array (0 uses `defaultMaxThorLocks`).
-    function withdrawUnlockedThor(uint256 maxLocks) external nonReentrant whenNotPaused returns (uint256 amountOut) {
+    function requestWithdrawUnlockedThor(uint256 maxLocks) external nonReentrant whenNotPaused returns (uint256 amountQueued) {
+        uint256 max = maxLocks == 0 ? defaultMaxThorLocks : maxLocks;
+        require(max > 0, "xMETRO: zero max");
+
+        uint256 unlocked;
+        unlocked += _consumeThorLocks(_thorLocks3m[msg.sender], thorLockCursor3m[msg.sender], msg.sender, true, max);
+        unlocked += _consumeThorLocks(_thorLocks10m[msg.sender], thorLockCursor10m[msg.sender], msg.sender, false, max);
+
+        require(unlocked > 0, "xMETRO: nothing unlocked");
+        require(unlocked <= type(uint128).max, "xMETRO: amount too large");
+
+        _decreaseLockedShares(msg.sender, unlocked);
+
+        uint64 unlockTime = uint64(block.timestamp) + UNSTAKE_DELAY;
+        _unstakeRequestsThor[msg.sender].push(UnstakeRequest(uint128(unlocked), unlockTime));
+        emit UnstakeRequested(msg.sender, UnstakeSource.Thor, unlocked, unlockTime);
+
+        return unlocked;
+    }
+
+
+    /// @notice Request withdrawal for currently-vested yTHOR-migration principal.
+    /// @param maxSchedules Max number of vesting schedules to scan/consume (0 uses `defaultMaxVestingSchedules`).
+    function requestWithdrawUnlockedYThor(uint256 maxSchedules) external nonReentrant whenNotPaused returns (uint256 amountQueued) {
+        uint256 unlocked = _consumeVesting(msg.sender, maxSchedules);
+        require(unlocked > 0, "xMETRO: nothing unlocked");
+        require(unlocked <= type(uint128).max, "xMETRO: amount too large");
+
+        _decreaseLockedShares(msg.sender, unlocked);
+
+        uint64 unlockTime = uint64(block.timestamp) + UNSTAKE_DELAY;
+        _unstakeRequestsYThor[msg.sender].push(UnstakeRequest(uint128(unlocked), unlockTime));
+        emit UnstakeRequested(msg.sender, UnstakeSource.YThor, unlocked, unlockTime);
+
+        return unlocked;
+    }
+
+
+    /// @notice Request withdrawal for currently-vested contributor principal.
+    /// @param maxSchedules Max number of vesting schedules to scan/consume (0 uses `defaultMaxVestingSchedules`).
+    function requestWithdrawUnlockedContributor(uint256 maxSchedules)
+        external
+        nonReentrant
+        whenNotPaused
+        returns (uint256 amountQueued)
+    {
+        uint256 unlocked = _consumeContributorVesting(msg.sender, maxSchedules);
+        require(unlocked > 0, "xMETRO: nothing unlocked");
+        require(unlocked <= type(uint128).max, "xMETRO: amount too large");
+
+        _decreaseLockedShares(msg.sender, unlocked);
+
+        uint64 unlockTime = uint64(block.timestamp) + UNSTAKE_DELAY;
+        _unstakeRequestsContributor[msg.sender].push(UnstakeRequest(uint128(unlocked), unlockTime));
+        emit UnstakeRequested(msg.sender, UnstakeSource.Contributor, unlocked, unlockTime);
+
+        return unlocked;
+    }
+
+    /// @notice Convert currently-unlocked THOR-migration principal (3m + 10m locks) into transferable xMETRO (free shares).
+    /// @dev This does NOT withdraw METRO; it only moves the user's shares from `lockedShares` into ERC20 `balanceOf`.
+    /// @param maxLocks Max number of lock entries to consume per lock array (0 uses `defaultMaxThorLocks`).
+    function claimAndStakeUnlockedThor(uint256 maxLocks) external nonReentrant whenNotPaused returns (uint256 sharesMinted) {
         uint256 max = maxLocks == 0 ? defaultMaxThorLocks : maxLocks;
         require(max > 0, "xMETRO: zero max");
 
@@ -462,40 +597,46 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
 
         require(unlocked > 0, "xMETRO: nothing unlocked");
 
+        // Convert locked shares -> free (transferable) shares. Total shares stay unchanged.
         _decreaseLockedShares(msg.sender, unlocked);
-        IERC20(address(METRO)).safeTransfer(msg.sender, unlocked);
-        emit ThorUnlockedWithdrawn(msg.sender, unlocked);
+        _mintFreeShares(msg.sender, unlocked);
+
+        emit UnlockedClaimedAsShares(msg.sender, UnstakeSource.Thor, unlocked, unlocked);
         return unlocked;
     }
 
-
-    /// @notice Withdraw currently-vested yTHOR-migration principal directly as METRO.
+    /// @notice Convert currently-vested yTHOR-migration principal into transferable xMETRO (free shares).
+    /// @dev This does NOT withdraw METRO; it only moves the user's shares from `lockedShares` into ERC20 `balanceOf`.
     /// @param maxSchedules Max number of vesting schedules to scan/consume (0 uses `defaultMaxVestingSchedules`).
-    function withdrawUnlockedYThor(uint256 maxSchedules) external nonReentrant whenNotPaused returns (uint256 amountOut) {
+    function claimAndStakeUnlockedYThor(uint256 maxSchedules) external nonReentrant whenNotPaused returns (uint256 sharesMinted) {
         uint256 unlocked = _consumeVesting(msg.sender, maxSchedules);
         require(unlocked > 0, "xMETRO: nothing unlocked");
 
+        // Convert locked shares -> free (transferable) shares. Total shares stay unchanged.
         _decreaseLockedShares(msg.sender, unlocked);
-        IERC20(address(METRO)).safeTransfer(msg.sender, unlocked);
-        emit YThorUnlockedWithdrawn(msg.sender, unlocked);
+        _mintFreeShares(msg.sender, unlocked);
+
+        emit UnlockedClaimedAsShares(msg.sender, UnstakeSource.YThor, unlocked, unlocked);
         return unlocked;
     }
 
-
-    /// @notice Withdraw currently-vested contributor principal directly as METRO.
+    /// @notice Convert currently-vested contributor principal into transferable xMETRO (free shares).
+    /// @dev This does NOT withdraw METRO; it only moves the user's shares from `lockedShares` into ERC20 `balanceOf`.
     /// @param maxSchedules Max number of vesting schedules to scan/consume (0 uses `defaultMaxVestingSchedules`).
-    function withdrawUnlockedContributor(uint256 maxSchedules)
+    function claimAndStakeUnlockedContributor(uint256 maxSchedules)
         external
         nonReentrant
         whenNotPaused
-        returns (uint256 amountOut)
+        returns (uint256 sharesMinted)
     {
         uint256 unlocked = _consumeContributorVesting(msg.sender, maxSchedules);
         require(unlocked > 0, "xMETRO: nothing unlocked");
 
+        // Convert locked shares -> free (transferable) shares. Total shares stay unchanged.
         _decreaseLockedShares(msg.sender, unlocked);
-        IERC20(address(METRO)).safeTransfer(msg.sender, unlocked);
-        emit ContributorUnlockedWithdrawn(msg.sender, unlocked);
+        _mintFreeShares(msg.sender, unlocked);
+
+        emit UnlockedClaimedAsShares(msg.sender, UnstakeSource.Contributor, unlocked, unlocked);
         return unlocked;
     }
 
@@ -806,7 +947,8 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
         }
     }
 
-    /// @notice Preview the amount currently unlockable and withdrawable (including THOR/yTHOR/contributor).
+    /// @notice Preview the amount currently unlockable across all lock/vesting mechanisms.
+    /// @dev This is the amount that can be queued via `requestWithdrawUnlocked*()`; actual METRO withdrawal happens via `withdrawThor/withdrawYThor/withdrawContributor(...)` after cooldown.
     function previewWithdrawableNow(address user)
         external
         view
@@ -848,13 +990,40 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
         return _thorLocks10m[user][index];
     }
 
-    /// @notice Unstake request count / entry by index.
-    function unstakeRequestCount(address user) external view returns (uint256) {
-        return _unstakeRequests[user].length;
+    /// @notice Unstake request count / entry by index (Free).
+    function unstakeRequestCountFree(address user) external view returns (uint256) {
+        return _unstakeRequestsFree[user].length;
     }
 
-    function unstakeRequest(address user, uint256 index) external view returns (UnstakeRequest memory) {
-        return _unstakeRequests[user][index];
+    function unstakeRequestFree(address user, uint256 index) external view returns (UnstakeRequest memory) {
+        return _unstakeRequestsFree[user][index];
+    }
+
+    /// @notice Unstake request count / entry by index (Thor).
+    function unstakeRequestCountThor(address user) external view returns (uint256) {
+        return _unstakeRequestsThor[user].length;
+    }
+
+    function unstakeRequestThor(address user, uint256 index) external view returns (UnstakeRequest memory) {
+        return _unstakeRequestsThor[user][index];
+    }
+
+    /// @notice Unstake request count / entry by index (YThor).
+    function unstakeRequestCountYThor(address user) external view returns (uint256) {
+        return _unstakeRequestsYThor[user].length;
+    }
+
+    function unstakeRequestYThor(address user, uint256 index) external view returns (UnstakeRequest memory) {
+        return _unstakeRequestsYThor[user][index];
+    }
+
+    /// @notice Unstake request count / entry by index (Contributor).
+    function unstakeRequestCountContributor(address user) external view returns (uint256) {
+        return _unstakeRequestsContributor[user].length;
+    }
+
+    function unstakeRequestContributor(address user, uint256 index) external view returns (UnstakeRequest memory) {
+        return _unstakeRequestsContributor[user][index];
     }
 
     /// @notice contributor vesting schedule count.

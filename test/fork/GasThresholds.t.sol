@@ -88,7 +88,7 @@ contract GasThresholdsForkTest is Test {
             uint256 mid = (low + high + 1) / 2;
             vm.revertToState(snap);
 
-            bytes memory data = abi.encodeCall(xMETRO.withdrawUnlockedYThor, (mid));
+            bytes memory data = abi.encodeCall(xMETRO.requestWithdrawUnlockedYThor, (mid));
             vm.prank(user);
             (bool ok,) = address(xmetro).call{ gas: gasCap }(data);
 
@@ -96,7 +96,7 @@ contract GasThresholdsForkTest is Test {
             else high = mid - 1;
         }
 
-        console2.log("Max withdrawUnlockedYThor(maxSchedules) OK =", low);
+        console2.log("Max requestWithdrawUnlockedYThor(maxSchedules) OK =", low);
         if (low == len) console2.log("NOTE: threshold >= len, increase VEST_LEN to find real OOG point");
 
         assertGt(low, 0, "maxOk=0");
@@ -130,7 +130,7 @@ contract GasThresholdsForkTest is Test {
 
             xmetro.setDefaultMaxThorLocks(mid);
 
-            bytes memory data = abi.encodeCall(xMETRO.withdrawUnlockedThor, (uint256(0)));
+            bytes memory data = abi.encodeCall(xMETRO.requestWithdrawUnlockedThor, (uint256(0)));
             vm.prank(user);
             (bool ok,) = address(xmetro).call{ gas: gasCap }(data);
 
@@ -178,7 +178,7 @@ contract GasThresholdsForkTest is Test {
             uint256 mid = (low + high + 1) / 2;
             vm.revertToState(snap);
 
-            bytes memory data = abi.encodeCall(xMETRO.withdrawUnlockedContributor, (mid));
+            bytes memory data = abi.encodeCall(xMETRO.requestWithdrawUnlockedContributor, (mid));
             vm.prank(user);
             (bool ok,) = address(xmetro).call{ gas: gasCap }(data);
 
@@ -186,7 +186,7 @@ contract GasThresholdsForkTest is Test {
             else high = mid - 1;
         }
 
-        console2.log("Max withdrawUnlockedContributor(maxSchedules) OK =", low);
+        console2.log("Max requestWithdrawUnlockedContributor(maxSchedules) OK =", low);
         if (low == len) console2.log("NOTE: threshold >= len, increase CONTRIB_LEN to find real OOG point");
 
         assertGt(low, 0, "maxOk=0");
@@ -226,7 +226,7 @@ contract GasThresholdsForkTest is Test {
             uint256 mid = (low + high + 1) / 2;
             vm.revertToState(snap);
 
-            bytes memory data = abi.encodeCall(xMETRO.withdraw, (mid));
+            bytes memory data = abi.encodeCall(xMETRO.withdrawFree, (mid));
             vm.prank(user);
             (bool ok,) = address(xmetro).call{ gas: gasCap }(data);
 
@@ -234,7 +234,7 @@ contract GasThresholdsForkTest is Test {
             else high = mid - 1;
         }
 
-        console2.log("Max withdraw(maxRequests) OK =", low);
+        console2.log("Max withdrawFree(maxRequests) OK =", low);
         if (low == len) console2.log("NOTE: threshold >= len, increase REQ_LEN to find real OOG point");
 
         assertGt(low, 0, "maxOk=0");

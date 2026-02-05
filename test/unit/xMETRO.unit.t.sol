@@ -100,9 +100,9 @@ contract xMETROUnitTest is Test {
         xmetro.requestUnstake(4 ether);
 
         assertEq(xmetro.balanceOf(userA), beforeShares - 4 ether);
-        assertEq(xmetro.unstakeRequestCount(userA), 1);
+        assertEq(xmetro.unstakeRequestCountFree(userA), 1);
 
-        xMETRO.UnstakeRequest memory r = xmetro.unstakeRequest(userA, 0);
+        xMETRO.UnstakeRequest memory r = xmetro.unstakeRequestFree(userA, 0);
         assertEq(uint256(r.amount), 4 ether);
         assertEq(uint256(r.unlockTime), block.timestamp + xmetro.UNSTAKE_DELAY());
     }
@@ -129,20 +129,20 @@ contract xMETROUnitTest is Test {
 
         vm.prank(userA);
         vm.expectRevert(bytes("xMETRO: nothing to withdraw"));
-        xmetro.withdraw(0);
+        xmetro.withdrawFree(0);
 
         vm.warp(block.timestamp + xmetro.UNSTAKE_DELAY());
 
         uint256 before = metro.balanceOf(userA);
         vm.prank(userA);
-        uint256 out1 = xmetro.withdraw(2);
+        uint256 out1 = xmetro.withdrawFree(2);
         uint256 mid = metro.balanceOf(userA);
 
         assertEq(out1, 5 ether);
         assertEq(mid - before, 5 ether);
 
         vm.prank(userA);
-        uint256 out2 = xmetro.withdraw(2);
+        uint256 out2 = xmetro.withdrawFree(2);
         uint256 afterBal = metro.balanceOf(userA);
 
         assertEq(out2, 5 ether);
@@ -163,14 +163,14 @@ contract xMETROUnitTest is Test {
 
         uint256 beforeBal = metro.balanceOf(userA);
         vm.prank(userA);
-        uint256 out = xmetro.withdraw(0);
+        uint256 out = xmetro.withdrawFree(0);
         uint256 afterBal = metro.balanceOf(userA);
 
         assertEq(out, 6 ether);
         assertEq(afterBal - beforeBal, 6 ether);
 
         vm.prank(userA);
-        uint256 out2 = xmetro.withdraw(0);
+        uint256 out2 = xmetro.withdrawFree(0);
         assertEq(out2, 0);
     }
 
@@ -193,7 +193,7 @@ contract xMETROUnitTest is Test {
 
         uint256 beforeBal = metro.balanceOf(userA);
         vm.prank(userA);
-        uint256 out = xmetro.withdraw(0);
+        uint256 out = xmetro.withdrawFree(0);
         uint256 afterBal = metro.balanceOf(userA);
 
         assertEq(out, 1 ether);
@@ -326,15 +326,22 @@ contract xMETROUnitTest is Test {
 
         uint256 beforeMetro = metro.balanceOf(userA);
         vm.prank(userA);
-        uint256 unlocked = xmetro.withdrawUnlockedYThor(2);
-        uint256 afterMetro = metro.balanceOf(userA);
-
-        assertEq(afterMetro - beforeMetro, unlocked);
-        assertGt(unlocked, 0);
+        uint256 q1 = xmetro.requestWithdrawUnlockedYThor(2);
+        assertGt(q1, 0);
+        assertEq(metro.balanceOf(userA), beforeMetro);
+        assertEq(xmetro.unstakeRequestCountYThor(userA), 1);
 
         vm.prank(userA);
-        uint256 unlocked2 = xmetro.withdrawUnlockedYThor(2);
-        assertGt(unlocked2, 0);
+        uint256 q2 = xmetro.requestWithdrawUnlockedYThor(2);
+        assertGt(q2, 0);
+        assertEq(metro.balanceOf(userA), beforeMetro);
+        assertEq(xmetro.unstakeRequestCountYThor(userA), 2);
+
+        vm.warp(block.timestamp + xmetro.UNSTAKE_DELAY());
+        vm.prank(userA);
+        uint256 out = xmetro.withdrawYThor(0);
+        assertEq(out, q1 + q2);
+        assertEq(metro.balanceOf(userA) - beforeMetro, out);
     }
 
     function test_WithdrawUnlockedYThor_DoesNotChangePendingRewards() public {
@@ -350,12 +357,73 @@ contract xMETROUnitTest is Test {
         uint256 lockedBefore = xmetro.lockedShares(userA);
 
         vm.prank(userA);
-        uint256 unlocked = xmetro.withdrawUnlockedYThor(12);
+        uint256 unlocked = xmetro.requestWithdrawUnlockedYThor(12);
 
         assertEq(xmetro.lockedShares(userA), lockedBefore - unlocked);
 
         uint256 pendingAfter = xmetro.claimable(userA);
         assertApproxEqAbs(pendingAfter, pendingBefore, 1);
+    }
+
+    function test_ClaimAndStakeUnlockedYThor_RevertNothingUnlocked() public {
+        xmetro.creditLockedVestingFromMigration(userA, 10 ether);
+
+        vm.prank(userA);
+        vm.expectRevert(bytes("xMETRO: nothing unlocked"));
+        xmetro.claimAndStakeUnlockedYThor(1);
+    }
+
+    function test_ClaimAndStakeUnlockedYThor_MintsFreeShares_NoQueue_TotalSharesConstant() public {
+        uint256 amount = 10 ether;
+        xmetro.creditLockedVestingFromMigration(userA, amount);
+
+        // Warp to ~50% vested.
+        vm.warp(block.timestamp + xmetro.YTHOR_CLIFF() + (xmetro.YTHOR_DURATION() / 2));
+
+        uint256 userMetroBefore = metro.balanceOf(userA);
+        uint256 userFreeBefore = xmetro.balanceOf(userA);
+        uint256 userLockedBefore = xmetro.lockedShares(userA);
+
+        uint256 totalSharesBefore = xmetro.totalShares();
+        uint256 supplyBefore = xmetro.totalSupply();
+        uint256 totalLockedBefore = xmetro.totalLockedShares();
+
+        uint256 xmetroMetroBefore = metro.balanceOf(address(xmetro));
+        uint256 qBefore = _totalUnstakeRequests(userA);
+
+        vm.prank(userA);
+        uint256 minted = xmetro.claimAndStakeUnlockedYThor(0);
+        assertGt(minted, 0);
+
+        assertEq(_totalUnstakeRequests(userA), qBefore);
+        assertEq(metro.balanceOf(userA), userMetroBefore);
+        assertEq(metro.balanceOf(address(xmetro)), xmetroMetroBefore);
+
+        assertEq(xmetro.balanceOf(userA), userFreeBefore + minted);
+        assertEq(xmetro.lockedShares(userA), userLockedBefore - minted);
+
+        // Total shares must remain invariant when converting locked shares -> free shares.
+        assertEq(xmetro.totalShares(), totalSharesBefore);
+        assertEq(xmetro.totalSupply(), supplyBefore + minted);
+        assertEq(xmetro.totalLockedShares(), totalLockedBefore - minted);
+    }
+
+    function test_ClaimAndStakeUnlockedYThor_DoesNotChangePendingRewards() public {
+        xmetro.creditLockedVestingFromMigration(userA, 10 ether);
+
+        xmetro.setRewardDistributor(distributor);
+        _depositRewards(100 * 1e6);
+
+        uint256 pendingBefore = xmetro.claimable(userA);
+
+        vm.warp(block.timestamp + xmetro.YTHOR_CLIFF() + (xmetro.YTHOR_DURATION() / 2));
+
+        vm.prank(userA);
+        uint256 minted = xmetro.claimAndStakeUnlockedYThor(0);
+        assertGt(minted, 0);
+
+        uint256 pendingAfter = xmetro.claimable(userA);
+        assertEq(pendingAfter, pendingBefore);
     }
 
     function test_DefaultMaxThorLocks_SetterAndBatchWithdrawUnlocked() public {
@@ -372,19 +440,22 @@ contract xMETROUnitTest is Test {
         vm.warp(block.timestamp + (3 * xmetro.THOR_LOCK_MONTH_SECONDS()) + 1);
 
         vm.prank(userA);
-        uint256 u1 = xmetro.withdrawUnlockedThor(0);
+        uint256 u1 = xmetro.requestWithdrawUnlockedThor(0);
         assertEq(u1, 2 ether);
         assertEq(xmetro.thorLockCursor3m(userA), 2);
+        assertEq(xmetro.unstakeRequestCountThor(userA), 1);
 
         vm.prank(userA);
-        uint256 u2 = xmetro.withdrawUnlockedThor(0);
+        uint256 u2 = xmetro.requestWithdrawUnlockedThor(0);
         assertEq(u2, 2 ether);
         assertEq(xmetro.thorLockCursor3m(userA), 4);
+        assertEq(xmetro.unstakeRequestCountThor(userA), 2);
 
         vm.prank(userA);
-        uint256 u3 = xmetro.withdrawUnlockedThor(0);
+        uint256 u3 = xmetro.requestWithdrawUnlockedThor(0);
         assertEq(u3, 1 ether);
         assertEq(xmetro.thorLockCursor3m(userA), 5);
+        assertEq(xmetro.unstakeRequestCountThor(userA), 3);
     }
 
     function test_RequestUnstake_DoesNotForfeitEarnedRewards() public {
@@ -418,15 +489,15 @@ contract xMETROUnitTest is Test {
         vm.warp(startTime - 1);
         vm.prank(userA);
         vm.expectRevert(bytes("xMETRO: nothing unlocked"));
-        xmetro.withdrawUnlockedYThor(1);
+        xmetro.requestWithdrawUnlockedYThor(1);
         assertEq(metro.balanceOf(userA), 0);
         assertEq(xmetro.lockedShares(userA), totalAmount);
 
         vm.warp(startTime + (duration / 4));
         vm.prank(userA);
-        uint256 u1 = xmetro.withdrawUnlockedYThor(1);
+        uint256 u1 = xmetro.requestWithdrawUnlockedYThor(1);
         assertEq(u1, totalAmount / 4);
-        assertEq(metro.balanceOf(userA), totalAmount / 4);
+        assertEq(metro.balanceOf(userA), 0);
         assertEq(xmetro.lockedShares(userA), totalAmount - (totalAmount / 4));
 
         xMETRO.VestingSchedule memory s1 = xmetro.yThorVesting(userA, 0);
@@ -434,9 +505,9 @@ contract xMETROUnitTest is Test {
 
         vm.warp(startTime + (duration / 2));
         vm.prank(userA);
-        uint256 u2 = xmetro.withdrawUnlockedYThor(1);
+        uint256 u2 = xmetro.requestWithdrawUnlockedYThor(1);
         assertEq(u2, totalAmount / 4);
-        assertEq(metro.balanceOf(userA), totalAmount / 2);
+        assertEq(metro.balanceOf(userA), 0);
         assertEq(xmetro.lockedShares(userA), totalAmount / 2);
 
         xMETRO.VestingSchedule memory s2 = xmetro.yThorVesting(userA, 0);
@@ -444,9 +515,9 @@ contract xMETROUnitTest is Test {
 
         vm.warp(endTime);
         vm.prank(userA);
-        uint256 u3 = xmetro.withdrawUnlockedYThor(1);
+        uint256 u3 = xmetro.requestWithdrawUnlockedYThor(1);
         assertEq(u3, totalAmount / 2);
-        assertEq(metro.balanceOf(userA), totalAmount);
+        assertEq(metro.balanceOf(userA), 0);
         assertEq(xmetro.lockedShares(userA), 0);
 
         xMETRO.VestingSchedule memory s3 = xmetro.yThorVesting(userA, 0);
@@ -455,7 +526,53 @@ contract xMETROUnitTest is Test {
         vm.warp(endTime + 1000);
         vm.prank(userA);
         vm.expectRevert(bytes("xMETRO: nothing unlocked"));
-        xmetro.withdrawUnlockedYThor(1);
+        xmetro.requestWithdrawUnlockedYThor(1);
+
+        vm.warp(endTime + xmetro.UNSTAKE_DELAY() + 1);
+        vm.prank(userA);
+        uint256 out = xmetro.withdrawYThor(0);
+        assertEq(out, totalAmount);
+        assertEq(metro.balanceOf(userA), totalAmount);
+    }
+
+    function test_ClaimAndStakeUnlockedThor_MintsFreeShares_ForBothBuckets_NoQueue() public {
+        xmetro.creditLockedTHORFromMigration(userA, 1 ether, 3);
+        xmetro.creditLockedTHORFromMigration(userA, 2 ether, 10);
+
+        assertEq(xmetro.thorLocks3mCount(userA), 1);
+        assertEq(xmetro.thorLocks10mCount(userA), 1);
+
+        // Warp past the 10m lock end time to ensure both buckets are unlocked.
+        vm.warp(block.timestamp + (10 * xmetro.THOR_LOCK_MONTH_SECONDS()) + 1);
+
+        uint256 userMetroBefore = metro.balanceOf(userA);
+        uint256 userFreeBefore = xmetro.balanceOf(userA);
+        uint256 userLockedBefore = xmetro.lockedShares(userA);
+
+        uint256 totalSharesBefore = xmetro.totalShares();
+        uint256 supplyBefore = xmetro.totalSupply();
+        uint256 totalLockedBefore = xmetro.totalLockedShares();
+
+        uint256 xmetroMetroBefore = metro.balanceOf(address(xmetro));
+        uint256 qBefore = _totalUnstakeRequests(userA);
+
+        vm.prank(userA);
+        uint256 minted = xmetro.claimAndStakeUnlockedThor(0);
+        assertEq(minted, 3 ether);
+
+        assertEq(_totalUnstakeRequests(userA), qBefore);
+        assertEq(metro.balanceOf(userA), userMetroBefore);
+        assertEq(metro.balanceOf(address(xmetro)), xmetroMetroBefore);
+
+        assertEq(xmetro.balanceOf(userA), userFreeBefore + minted);
+        assertEq(xmetro.lockedShares(userA), userLockedBefore - minted);
+
+        assertEq(xmetro.thorLockCursor3m(userA), 1);
+        assertEq(xmetro.thorLockCursor10m(userA), 1);
+
+        assertEq(xmetro.totalShares(), totalSharesBefore);
+        assertEq(xmetro.totalSupply(), supplyBefore + minted);
+        assertEq(xmetro.totalLockedShares(), totalLockedBefore - minted);
     }
 
     function test_AutocompoundBatch_OnlyOperator() public {
@@ -624,14 +741,72 @@ contract xMETROUnitTest is Test {
 
         uint256 beforeMetro = metro.balanceOf(contributor);
         vm.prank(contributor);
-        uint256 unlocked = xmetro.withdrawUnlockedContributor(1);
+        uint256 unlocked = xmetro.requestWithdrawUnlockedContributor(1);
         uint256 afterMetro = metro.balanceOf(contributor);
 
         assertEq(unlocked, 20 ether);
-        assertEq(afterMetro - beforeMetro, 20 ether);
+        assertEq(afterMetro, beforeMetro);
         assertEq(xmetro.lockedShares(contributor), 20 ether);
         xMETRO.VestingSchedule memory s1 = xmetro.contributorVesting(contributor, 0);
         assertEq(uint256(s1.claimed), 20 ether);
+        assertEq(xmetro.unstakeRequestCountContributor(contributor), 1);
+
+        vm.warp(block.timestamp + xmetro.UNSTAKE_DELAY());
+        vm.prank(contributor);
+        uint256 out = xmetro.withdrawContributor(0);
+        assertEq(out, unlocked);
+        assertEq(metro.balanceOf(contributor) - beforeMetro, unlocked);
+    }
+
+    function test_ClaimAndStakeUnlockedContributor_MintsFreeShares_NoQueue() public {
+        address contributor = makeAddr("contributor");
+
+        xmetro.setContributor(contributor, true);
+
+        metro.mint(contributor, 40 ether);
+        vm.prank(contributor);
+        metro.approve(address(xmetro), 40 ether);
+
+        vm.prank(contributor);
+        xmetro.stakeContributor(40 ether, userA);
+
+        assertEq(xmetro.contributorVestingCount(userA), 1);
+
+        // Warp to ~50% vested.
+        uint256 startTime = block.timestamp + xmetro.CONTRIBUTOR_CLIFF();
+        uint256 duration = xmetro.CONTRIBUTOR_DURATION();
+        vm.warp(startTime + (duration / 2));
+
+        uint256 userMetroBefore = metro.balanceOf(userA);
+        uint256 userFreeBefore = xmetro.balanceOf(userA);
+        uint256 userLockedBefore = xmetro.lockedShares(userA);
+
+        uint256 totalSharesBefore = xmetro.totalShares();
+        uint256 supplyBefore = xmetro.totalSupply();
+        uint256 totalLockedBefore = xmetro.totalLockedShares();
+
+        uint256 xmetroMetroBefore = metro.balanceOf(address(xmetro));
+        uint256 qBefore = _totalUnstakeRequests(userA);
+
+        vm.prank(userA);
+        uint256 minted = xmetro.claimAndStakeUnlockedContributor(0);
+        assertEq(minted, 20 ether);
+
+        assertEq(_totalUnstakeRequests(userA), qBefore);
+        assertEq(metro.balanceOf(userA), userMetroBefore);
+        assertEq(metro.balanceOf(address(xmetro)), xmetroMetroBefore);
+
+        assertEq(xmetro.balanceOf(userA), userFreeBefore + minted);
+        assertEq(xmetro.lockedShares(userA), userLockedBefore - minted);
+
+        assertEq(xmetro.totalShares(), totalSharesBefore);
+        assertEq(xmetro.totalSupply(), supplyBefore + minted);
+        assertEq(xmetro.totalLockedShares(), totalLockedBefore - minted);
+    }
+
+    function _totalUnstakeRequests(address user) internal view returns (uint256) {
+        return xmetro.unstakeRequestCountFree(user) + xmetro.unstakeRequestCountThor(user)
+            + xmetro.unstakeRequestCountYThor(user) + xmetro.unstakeRequestCountContributor(user);
     }
 
     function _stake(address user, uint256 amount) internal {

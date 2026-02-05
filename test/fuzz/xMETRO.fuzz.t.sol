@@ -175,11 +175,17 @@ contract xMETROFuzzTest is Test {
         uint256 beforeLocked = xmetro.lockedShares(userA);
 
         vm.prank(userA);
-        uint256 out = xmetro.withdrawUnlockedYThor(maxSchedules);
+        uint256 out = xmetro.requestWithdrawUnlockedYThor(maxSchedules);
 
         assertEq(out, expected);
-        assertEq(metro.balanceOf(userA) - beforeBal, out);
+        assertEq(metro.balanceOf(userA), beforeBal);
         assertEq(xmetro.lockedShares(userA), beforeLocked - out);
+
+        vm.warp(block.timestamp + xmetro.UNSTAKE_DELAY());
+        vm.prank(userA);
+        uint256 paid = xmetro.withdrawYThor(0);
+        assertEq(paid, out);
+        assertEq(metro.balanceOf(userA) - beforeBal, out);
     }
 
     function testFuzz_WithdrawUnlockedContributor_RespectsMax(
@@ -218,11 +224,17 @@ contract xMETROFuzzTest is Test {
         uint256 beforeLocked = xmetro.lockedShares(contributor);
 
         vm.prank(contributor);
-        uint256 out = xmetro.withdrawUnlockedContributor(maxSchedules);
+        uint256 out = xmetro.requestWithdrawUnlockedContributor(maxSchedules);
 
         assertEq(out, expected);
-        assertEq(metro.balanceOf(contributor) - beforeBal, out);
+        assertEq(metro.balanceOf(contributor), beforeBal);
         assertEq(xmetro.lockedShares(contributor), beforeLocked - out);
+
+        vm.warp(block.timestamp + xmetro.UNSTAKE_DELAY());
+        vm.prank(contributor);
+        uint256 paid = xmetro.withdrawContributor(0);
+        assertEq(paid, out);
+        assertEq(metro.balanceOf(contributor) - beforeBal, out);
     }
 
     function testFuzz_Withdraw_RespectsMaxRequests(uint8 nReqRaw, uint8 maxReqRaw) public {
@@ -244,11 +256,11 @@ contract xMETROFuzzTest is Test {
 
         uint256 beforeBal = metro.balanceOf(userA);
         vm.prank(userA);
-        uint256 out = xmetro.withdraw(maxReq);
+        uint256 out = xmetro.withdrawFree(maxReq);
 
         assertEq(out, maxEffective * amountPer);
         assertEq(metro.balanceOf(userA) - beforeBal, out);
-        assertEq(xmetro.unstakeCursor(userA), maxEffective);
+        assertEq(xmetro.unstakeCursorFree(userA), maxEffective);
     }
 
     function testFuzz_ClaimableMany_DuplicatesAndZero_NoRevert(uint96 stakeA, uint96 stakeB, uint64 rewards) public {
@@ -292,12 +304,18 @@ contract xMETROFuzzTest is Test {
         uint256 beforeLocked = xmetro.lockedShares(userA);
 
         vm.prank(userA);
-        uint256 out = xmetro.withdrawUnlockedThor(maxLocks);
+        uint256 out = xmetro.requestWithdrawUnlockedThor(maxLocks);
 
         assertEq(out, maxEffective * amountPerLock);
-        assertEq(metro.balanceOf(userA) - beforeBal, out);
+        assertEq(metro.balanceOf(userA), beforeBal);
         assertEq(xmetro.lockedShares(userA), beforeLocked - out);
         assertEq(xmetro.thorLockCursor3m(userA), maxEffective);
+
+        vm.warp(block.timestamp + xmetro.UNSTAKE_DELAY());
+        vm.prank(userA);
+        uint256 paid = xmetro.withdrawThor(0);
+        assertEq(paid, out);
+        assertEq(metro.balanceOf(userA) - beforeBal, out);
     }
 
     function _stake(address user, uint256 amount) internal {

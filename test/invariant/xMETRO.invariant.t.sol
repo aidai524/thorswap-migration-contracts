@@ -113,7 +113,7 @@ contract xMETROHandler is Test {
     function requestUnstake(uint256 actorSeed, uint256 amountSeed) external {
         if (xmetro.paused()) return;
         address actor = actors[actorSeed % actors.length];
-        if (xmetro.unstakeRequestCount(actor) > 50) return;
+        if (xmetro.unstakeRequestCountFree(actor) > 50) return;
         uint256 bal = xmetro.balanceOf(actor);
         if (bal == 0) return;
 
@@ -126,18 +126,69 @@ contract xMETROHandler is Test {
         if (xmetro.paused()) return;
         address actor = actors[actorSeed % actors.length];
 
-        uint256 count = xmetro.unstakeRequestCount(actor);
-        uint256 cursor = xmetro.unstakeCursor(actor);
+        uint256 source = maxSeed % 4;
+
+        if (source == 0) {
+            uint256 count = xmetro.unstakeRequestCountFree(actor);
+            uint256 cursor = xmetro.unstakeCursorFree(actor);
+            if (cursor >= count) return;
+
+            xMETRO.UnstakeRequest memory r = xmetro.unstakeRequestFree(actor, cursor);
+            if (r.unlockTime > block.timestamp) return;
+
+            uint256 remaining = count - cursor;
+            uint256 maxRequests = bound(maxSeed, 0, remaining);
+
+            vm.prank(actor);
+            xmetro.withdrawFree(maxRequests);
+            return;
+        }
+
+        if (source == 1) {
+            uint256 count = xmetro.unstakeRequestCountThor(actor);
+            uint256 cursor = xmetro.unstakeCursorThor(actor);
+            if (cursor >= count) return;
+
+            xMETRO.UnstakeRequest memory r = xmetro.unstakeRequestThor(actor, cursor);
+            if (r.unlockTime > block.timestamp) return;
+
+            uint256 remaining = count - cursor;
+            uint256 maxRequests = bound(maxSeed, 0, remaining);
+
+            vm.prank(actor);
+            xmetro.withdrawThor(maxRequests);
+            return;
+        }
+
+        if (source == 2) {
+            uint256 count = xmetro.unstakeRequestCountYThor(actor);
+            uint256 cursor = xmetro.unstakeCursorYThor(actor);
+            if (cursor >= count) return;
+
+            xMETRO.UnstakeRequest memory r = xmetro.unstakeRequestYThor(actor, cursor);
+            if (r.unlockTime > block.timestamp) return;
+
+            uint256 remaining = count - cursor;
+            uint256 maxRequests = bound(maxSeed, 0, remaining);
+
+            vm.prank(actor);
+            xmetro.withdrawYThor(maxRequests);
+            return;
+        }
+
+        // source == 3
+        uint256 count = xmetro.unstakeRequestCountContributor(actor);
+        uint256 cursor = xmetro.unstakeCursorContributor(actor);
         if (cursor >= count) return;
 
-        xMETRO.UnstakeRequest memory r = xmetro.unstakeRequest(actor, cursor);
+        xMETRO.UnstakeRequest memory r = xmetro.unstakeRequestContributor(actor, cursor);
         if (r.unlockTime > block.timestamp) return;
 
         uint256 remaining = count - cursor;
         uint256 maxRequests = bound(maxSeed, 0, remaining);
 
         vm.prank(actor);
-        xmetro.withdraw(maxRequests);
+        xmetro.withdrawContributor(maxRequests);
     }
 
     function depositRewards(uint256 amountSeed) external {
@@ -254,18 +305,18 @@ contract xMETROHandler is Test {
         ok;
     }
 
-    function withdrawUnlockedThor(uint256 actorSeed) external {
+    function requestWithdrawUnlockedThor(uint256 actorSeed) external {
         if (xmetro.paused()) return;
         address actor = actors[actorSeed % actors.length];
         (uint256 thorUnlockable,,,) = xmetro.previewWithdrawableNow(actor);
         if (thorUnlockable == 0) return;
 
         vm.prank(actor);
-        (bool ok,) = address(xmetro).call(abi.encodeCall(xMETRO.withdrawUnlockedThor, (uint256(0))));
+        (bool ok,) = address(xmetro).call(abi.encodeCall(xMETRO.requestWithdrawUnlockedThor, (uint256(0))));
         ok;
     }
 
-    function withdrawUnlockedYThor(uint256 actorSeed) external {
+    function requestWithdrawUnlockedYThor(uint256 actorSeed) external {
         if (xmetro.paused()) return;
         address actor = actors[actorSeed % actors.length];
         (, uint256 yThorUnlockable,,) = xmetro.previewWithdrawableNow(actor);
@@ -275,11 +326,11 @@ contract xMETROHandler is Test {
         if (len == 0) return;
 
         vm.prank(actor);
-        (bool ok,) = address(xmetro).call(abi.encodeCall(xMETRO.withdrawUnlockedYThor, (len)));
+        (bool ok,) = address(xmetro).call(abi.encodeCall(xMETRO.requestWithdrawUnlockedYThor, (len)));
         ok;
     }
 
-    function withdrawUnlockedContributor(uint256 actorSeed) external {
+    function requestWithdrawUnlockedContributor(uint256 actorSeed) external {
         if (xmetro.paused()) return;
         address actor = actors[actorSeed % actors.length];
         (,, uint256 contribUnlockable,) = xmetro.previewWithdrawableNow(actor);
@@ -289,7 +340,7 @@ contract xMETROHandler is Test {
         if (len == 0) return;
 
         vm.prank(actor);
-        (bool ok,) = address(xmetro).call(abi.encodeCall(xMETRO.withdrawUnlockedContributor, (len)));
+        (bool ok,) = address(xmetro).call(abi.encodeCall(xMETRO.requestWithdrawUnlockedContributor, (len)));
         ok;
     }
 
@@ -401,9 +452,9 @@ contract xMETROInvariantTest is StdInvariant, Test {
         selectors[20] = xMETROHandler.creditLockedThor.selector;
         selectors[21] = xMETROHandler.creditLockedVesting.selector;
         selectors[22] = xMETROHandler.stakeContributor.selector;
-        selectors[23] = xMETROHandler.withdrawUnlockedThor.selector;
-        selectors[24] = xMETROHandler.withdrawUnlockedYThor.selector;
-        selectors[25] = xMETROHandler.withdrawUnlockedContributor.selector;
+        selectors[23] = xMETROHandler.requestWithdrawUnlockedThor.selector;
+        selectors[24] = xMETROHandler.requestWithdrawUnlockedYThor.selector;
+        selectors[25] = xMETROHandler.requestWithdrawUnlockedContributor.selector;
 
         selectors[26] = xMETROHandler.transferShares.selector;
         selectors[27] = xMETROHandler.transferSharesFrom.selector;
