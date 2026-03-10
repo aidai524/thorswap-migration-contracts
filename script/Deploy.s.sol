@@ -85,7 +85,7 @@ contract Deploy is Script {
             xmetro.setSwapAdapter(address(adapter));
             swapAdapter = address(adapter);
 
-            RewardDistributor distributor = new RewardDistributor(address(xmetro), usdc, deployer);
+            RewardDistributor distributor = new RewardDistributor(address(xmetro), deployer);
             if (distributorOperator != address(0)) {
                 distributor.setOperator(distributorOperator, true);
             }

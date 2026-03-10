@@ -31,7 +31,7 @@ contract RewardDistributorFuzzTest is Test {
         xmetro = new xMETRO(owner, address(metro), address(usdc), address(0));
         metro.setMinter(address(xmetro), true);
 
-        distributor = new RewardDistributor(address(xmetro), address(usdc), owner);
+        distributor = new RewardDistributor(address(xmetro), owner);
         distributor.setOperator(operator, true);
         xmetro.setRewardDistributor(address(distributor));
 

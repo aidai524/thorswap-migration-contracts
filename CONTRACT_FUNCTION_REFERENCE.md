@@ -230,6 +230,11 @@ Purpose: Swaps the reward token (USDC) into `METRO` via Uniswap V2 or V3 for use
 
 Purpose: Operator-gated reward forwarding into `xMETRO.depositRewards(...)`.
 
+### Constructor
+- `constructor(address xMetro_, address owner_)`
+  - Initializes distributor ownership and binds `xMETRO`.
+  - `rewardToken` is read from `xMETRO.rewardToken()` (no separate reward token constructor parameter).
+
 ### Owner / Admin
 - `setOperator(address operator, bool allowed) external`
   - Grants/revokes permission to distribute rewards (owner-only).

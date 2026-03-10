@@ -181,7 +181,7 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
    
     event ContributorStaked(address indexed contributor, address indexed receiver, uint256 amount, uint64 startTime, uint64 duration);
 
-    event UnlockedClaimedAsShares(address indexed user, UnstakeSource indexed source, uint256 amount, uint256 sharesMinted);
+    event UnlockedClaimedAsShares(address indexed user, UnstakeSource indexed source, uint256 amount);
 
 
     event TokensRescued(address indexed token, address indexed to, uint256 amount);
@@ -348,12 +348,7 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
     /// @notice Autocompound: swap user's pending rewards (rewardToken) into METRO and mint received amount as free shares.
     /// @param minMetroOut Slippage protection: minimum METRO to receive.
     /// @param swapData Opaque routing data consumed by SwapAdapter.
-    function autocompound(uint256 minMetroOut, bytes calldata swapData)
-        external
-        nonReentrant
-        whenNotPaused
-        returns (uint256 metroOut)
-    {
+    function autocompound(uint256 minMetroOut, bytes calldata swapData) external nonReentrant whenNotPaused returns (uint256) {
         return _autocompound(msg.sender, minMetroOut, swapData);
     }
 
@@ -377,7 +372,7 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
         external
         nonReentrant
         whenNotPaused
-        returns (uint256 metroOut)
+        returns (uint256)
     {
         require(autoCompoundOperators[msg.sender], "xMETRO: only autocompound operator");
         require(address(swapAdapter) != address(0), "xMETRO: adapter not set");
@@ -407,7 +402,7 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
 
         uint256 metroBefore = METRO.balanceOf(address(this));
         rewardToken.forceApprove(address(swapAdapter), totalPending);
-        metroOut = swapAdapter.swap(totalPending, minMetroOut, swapData);
+        swapAdapter.swap(totalPending, minMetroOut, swapData);
         rewardToken.forceApprove(address(swapAdapter), 0);
 
         uint256 metroAfter = METRO.balanceOf(address(this));
@@ -423,9 +418,8 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
 
             if (share > 0) {
                 _mintFreeShares(users[i], share);
+                emit AutoCompounded(users[i], pending, share);
             }
-
-            emit AutoCompounded(users[i], pending, share);
         }
 
 
@@ -596,12 +590,13 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
         unlocked += _consumeThorLocks(_thorLocks10m[msg.sender], thorLockCursor10m[msg.sender], msg.sender, false, max);
 
         require(unlocked > 0, "xMETRO: nothing unlocked");
+        require(unlocked <= type(uint128).max, "xMETRO: amount too large");
 
         // Convert locked shares -> free (transferable) shares. Total shares stay unchanged.
         _decreaseLockedShares(msg.sender, unlocked);
         _mintFreeShares(msg.sender, unlocked);
 
-        emit UnlockedClaimedAsShares(msg.sender, UnstakeSource.Thor, unlocked, unlocked);
+        emit UnlockedClaimedAsShares(msg.sender, UnstakeSource.Thor, unlocked);
         return unlocked;
     }
 
@@ -611,12 +606,13 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
     function claimAndStakeUnlockedYThor(uint256 maxSchedules) external nonReentrant whenNotPaused returns (uint256 sharesMinted) {
         uint256 unlocked = _consumeVesting(msg.sender, maxSchedules);
         require(unlocked > 0, "xMETRO: nothing unlocked");
+        require(unlocked <= type(uint128).max, "xMETRO: amount too large");
 
         // Convert locked shares -> free (transferable) shares. Total shares stay unchanged.
         _decreaseLockedShares(msg.sender, unlocked);
         _mintFreeShares(msg.sender, unlocked);
 
-        emit UnlockedClaimedAsShares(msg.sender, UnstakeSource.YThor, unlocked, unlocked);
+        emit UnlockedClaimedAsShares(msg.sender, UnstakeSource.YThor, unlocked);
         return unlocked;
     }
 
@@ -631,12 +627,13 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
     {
         uint256 unlocked = _consumeContributorVesting(msg.sender, maxSchedules);
         require(unlocked > 0, "xMETRO: nothing unlocked");
+        require(unlocked <= type(uint128).max, "xMETRO: amount too large");
 
         // Convert locked shares -> free (transferable) shares. Total shares stay unchanged.
         _decreaseLockedShares(msg.sender, unlocked);
         _mintFreeShares(msg.sender, unlocked);
 
-        emit UnlockedClaimedAsShares(msg.sender, UnstakeSource.Contributor, unlocked, unlocked);
+        emit UnlockedClaimedAsShares(msg.sender, UnstakeSource.Contributor, unlocked);
         return unlocked;
     }
 
@@ -850,7 +847,7 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
         pending = uint256(accumulated - debt);
     }
 
-    function _autocompound(address user, uint256 minMetroOut, bytes calldata swapData) internal returns (uint256 metroOut) {
+    function _autocompound(address user, uint256 minMetroOut, bytes calldata swapData) internal returns (uint256) {
         require(address(swapAdapter) != address(0), "xMETRO: adapter not set");
 
         int256 accumulated;
@@ -862,7 +859,7 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
 
         uint256 metroBefore = METRO.balanceOf(address(this));
         rewardToken.forceApprove(address(swapAdapter), pending);
-        metroOut = swapAdapter.swap(pending, minMetroOut, swapData);
+        swapAdapter.swap(pending, minMetroOut, swapData);
         rewardToken.forceApprove(address(swapAdapter), 0);
 
         uint256 metroAfter = METRO.balanceOf(address(this));

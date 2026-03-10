@@ -55,7 +55,7 @@ contract XChainAndCoreTest is Test {
         mockAdapter.setXMetro(address(xmetro));
         xmetro.setSwapAdapter(address(mockAdapter));
 
-        distributor = new RewardDistributor(address(xmetro), address(usdc), address(this));
+        distributor = new RewardDistributor(address(xmetro), address(this));
         distributor.setOperator(address(this), true);
         xmetro.setRewardDistributor(address(distributor));
 

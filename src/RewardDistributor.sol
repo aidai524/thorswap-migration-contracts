@@ -35,11 +35,10 @@ contract RewardDistributor is Ownable, ReentrancyGuard {
 
     event TokensRescued(address indexed token, address indexed to, uint256 amount);
 
-    constructor(address xMetro_, address rewardToken_, address owner_) Ownable(owner_) {
+    constructor(address xMetro_, address owner_) Ownable(owner_) {
         require(xMetro_ != address(0), "RewardDistributor: zero xMETRO");
-        require(rewardToken_ != address(0), "RewardDistributor: zero rewardToken");
         xMETRO = IxMETRO(xMetro_);
-        rewardToken = IERC20(rewardToken_);
+        rewardToken = IxMETRO(xMetro_).rewardToken();
     }
 
     /// @dev Only operators can call.
