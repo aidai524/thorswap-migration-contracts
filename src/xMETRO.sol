@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -17,7 +17,9 @@ interface IMetroTokenMintable is IERC20 {
 
 
 interface ISwapAdapter {
-    function swap(uint256 amountIn, uint256 minAmountOut, bytes calldata swapData) external returns (uint256 amountOut);
+    function swap(uint256 amountIn, uint256 minAmountOut, uint256 deadline, bytes calldata swapData)
+        external
+        returns (uint256 amountOut);
 }
 
 contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
@@ -348,8 +350,13 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
     /// @notice Autocompound: swap user's pending rewards (rewardToken) into METRO and mint received amount as free shares.
     /// @param minMetroOut Slippage protection: minimum METRO to receive.
     /// @param swapData Opaque routing data consumed by SwapAdapter.
-    function autocompound(uint256 minMetroOut, bytes calldata swapData) external nonReentrant whenNotPaused returns (uint256) {
-        return _autocompound(msg.sender, minMetroOut, swapData);
+    function autocompound(uint256 minMetroOut, uint256 deadline, bytes calldata swapData)
+        external
+        nonReentrant
+        whenNotPaused
+        returns (uint256)
+    {
+        return _autocompound(msg.sender, minMetroOut, deadline, swapData);
     }
 
 
@@ -368,7 +375,7 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
      * @notice Batch autocompound: aggregate a set of users' pending USDC, swap it into METRO, then mint xMETRO pro-rata by pending.
      * @dev The user list is maintained off-chain by the bot and passed in via calldata; the contract also checks `autocompoundEnabled[user] == true`.
      */
-    function autocompoundBatch(address[] calldata users, uint256 minMetroOut, bytes calldata swapData)
+    function autocompoundBatch(address[] calldata users, uint256 minMetroOut, uint256 deadline, bytes calldata swapData)
         external
         nonReentrant
         whenNotPaused
@@ -382,6 +389,8 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
         uint256[] memory pendings = new uint256[](len);
 
         uint256 totalPending = 0;
+        uint256 largestPending;
+        uint256 largestPendingIndex = type(uint256).max;
 
 
         for (uint256 i = 0; i < len; i++) {
@@ -395,6 +404,10 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
             rewardDebt[user] = accumulated;
             pendings[i] = pending;
             totalPending += pending;
+            if (pending > largestPending) {
+                largestPending = pending;
+                largestPendingIndex = i;
+            }
         }
 
         require(totalPending > 0, "xMETRO: no rewards");
@@ -402,23 +415,36 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
 
         uint256 metroBefore = METRO.balanceOf(address(this));
         rewardToken.forceApprove(address(swapAdapter), totalPending);
-        swapAdapter.swap(totalPending, minMetroOut, swapData);
+        swapAdapter.swap(totalPending, minMetroOut, deadline, swapData);
         rewardToken.forceApprove(address(swapAdapter), 0);
 
         uint256 metroAfter = METRO.balanceOf(address(this));
         uint256 received = metroAfter - metroBefore;
         require(received >= minMetroOut, "xMETRO: slippage");
 
-
+        uint256 distributed;
         for (uint256 i = 0; i < len; i++) {
             uint256 pending = pendings[i];
             if (pending == 0) continue;
 
             uint256 share = (received * pending) / totalPending;
+            distributed += share;
+
+            if (i == largestPendingIndex) continue;
 
             if (share > 0) {
                 _mintFreeShares(users[i], share);
                 emit AutoCompounded(users[i], pending, share);
+            }
+        }
+
+        uint256 remainder = received - distributed;
+        if (largestPendingIndex != type(uint256).max) {
+            uint256 largestPendingShare = (received * pendings[largestPendingIndex]) / totalPending;
+            uint256 finalShare = largestPendingShare + remainder;
+            if (finalShare > 0) {
+                _mintFreeShares(users[largestPendingIndex], finalShare);
+                emit AutoCompounded(users[largestPendingIndex], pendings[largestPendingIndex], finalShare);
             }
         }
 
@@ -428,12 +454,12 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
     }
 
     /// @dev When free shares move, move the corresponding reward debt to avoid leaking past rewards.
-    function transfer(address to, uint256 amount) public override returns (bool) {
+    function transfer(address to, uint256 amount) public override whenNotPaused returns (bool) {
         _moveFreeSharesDebt(_msgSender(), to, amount);
         return super.transfer(to, amount);
     }
 
-    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
+    function transferFrom(address from, address to, uint256 amount) public override whenNotPaused returns (bool) {
         _moveFreeSharesDebt(from, to, amount);
         return super.transferFrom(from, to, amount);
     }
@@ -448,20 +474,23 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
         _unpause();
     }
 
-    /// @notice Update swap adapter (set to zero address to disable autocompound).
+    /// @notice Update swap adapter.
     function setSwapAdapter(address swapAdapter_) external onlyOwner {
+        require(swapAdapter_ != address(0), "xMETRO: bad adapter");
         swapAdapter = ISwapAdapter(swapAdapter_);
         emit SwapAdapterUpdated(swapAdapter_);
     }
 
-    /// @notice Set migration escrow allowed to call `creditLocked*FromMigration` (set to zero to disable).
+    /// @notice Set migration escrow allowed to call `creditLocked*FromMigration`.
     function setMigrationEscrow(address escrow) external onlyOwner {
+        require(escrow != address(0), "xMETRO: bad escrow");
         migrationEscrow = escrow;
         emit MigrationEscrowUpdated(escrow);
     }
 
     /// @notice Set RewardDistributor (the only caller allowed to `depositRewards`).
     function setRewardDistributor(address distributor) external onlyOwner {
+        require(distributor != address(0), "xMETRO: bad distributor");
         rewardDistributor = distributor;
         emit RewardDistributorUpdated(distributor);
     }
@@ -847,7 +876,10 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
         pending = uint256(accumulated - debt);
     }
 
-    function _autocompound(address user, uint256 minMetroOut, bytes calldata swapData) internal returns (uint256) {
+    function _autocompound(address user, uint256 minMetroOut, uint256 deadline, bytes calldata swapData)
+        internal
+        returns (uint256)
+    {
         require(address(swapAdapter) != address(0), "xMETRO: adapter not set");
 
         int256 accumulated;
@@ -859,7 +891,7 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
 
         uint256 metroBefore = METRO.balanceOf(address(this));
         rewardToken.forceApprove(address(swapAdapter), pending);
-        swapAdapter.swap(pending, minMetroOut, swapData);
+        swapAdapter.swap(pending, minMetroOut, deadline, swapData);
         rewardToken.forceApprove(address(swapAdapter), 0);
 
         uint256 metroAfter = METRO.balanceOf(address(this));
@@ -905,7 +937,7 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
 
     /// @dev Move reward debt when free shares move.
     function _moveFreeSharesDebt(address from, address to, uint256 amount) internal {
-        if (amount == 0) return;
+        if (amount == 0 || from == to) return;
         if (from != address(0)) rewardDebt[from] -= _debtDelta(amount);
         if (to != address(0)) rewardDebt[to] += _debtDelta(amount);
     }

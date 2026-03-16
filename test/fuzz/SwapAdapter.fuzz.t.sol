@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 import "forge-std/Test.sol";
 
@@ -46,7 +46,7 @@ contract SwapAdapterFuzzTest is Test {
         usdc.mint(xmetro, amountIn);
 
         vm.prank(xmetro);
-        uint256 out = adapter.swap(amountIn, amountIn * 2, swapData);
+        uint256 out = adapter.swap(amountIn, amountIn * 2, block.timestamp + 1, swapData);
 
         assertEq(out, amountIn * 2);
         assertEq(metro.balanceOf(xmetro), amountIn * 2);
@@ -63,7 +63,7 @@ contract SwapAdapterFuzzTest is Test {
         usdc.mint(xmetro, amountIn);
 
         vm.prank(xmetro);
-        uint256 out = adapter.swap(amountIn, amountIn * 2, swapData);
+        uint256 out = adapter.swap(amountIn, amountIn * 2, block.timestamp + 1, swapData);
 
         assertEq(out, amountIn * 2);
         assertEq(metro.balanceOf(xmetro), amountIn * 2);
@@ -79,7 +79,7 @@ contract SwapAdapterFuzzTest is Test {
 
         vm.prank(xmetro);
         vm.expectRevert(bytes("SwapAdapter: bad dexType"));
-        adapter.swap(amountIn, 0, abi.encode(dexType, bytes("")));
+        adapter.swap(amountIn, 1, block.timestamp + 1, abi.encode(dexType, bytes("")));
     }
 
     function testFuzz_Swap_V3_BadPath_Revert(uint256 amountIn, uint256 badLen) public {
@@ -93,7 +93,7 @@ contract SwapAdapterFuzzTest is Test {
 
         vm.prank(xmetro);
         vm.expectRevert();
-        adapter.swap(amountIn, 0, swapData);
+        adapter.swap(amountIn, 1, block.timestamp + 1, swapData);
     }
 }
 
@@ -137,4 +137,3 @@ contract FuzzRouterV3 {
         outToken.mint(params.recipient, amountOut);
     }
 }
-

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 import "forge-std/Test.sol";
 import "forge-std/StdInvariant.sol";
@@ -45,20 +45,20 @@ contract xMETROHandler is Test {
     }
 
     function setSwapAdapter(uint256 seed) external {
-        // Toggle between a valid adapter and "disabled" (zero address).
-        address next = (seed % 4 == 0) ? address(0) : address(adapter);
+        address next = address(adapter);
+        seed;
         xmetro.setSwapAdapter(next);
     }
 
     function setRewardDistributor(uint256 seed) external {
-        // Keep reward distribution mostly functional, but still exercise disabling.
-        address next = (seed % 4 == 0) ? address(0) : address(this);
+        address next = address(this);
+        seed;
         xmetro.setRewardDistributor(next);
     }
 
     function setMigrationEscrow(uint256 seed) external {
-        // Keep migration crediting mostly functional, but still exercise disabling.
-        address next = (seed % 4 == 0) ? address(0) : address(this);
+        address next = address(this);
+        seed;
         xmetro.setMigrationEscrow(next);
     }
 
@@ -241,7 +241,7 @@ contract xMETROHandler is Test {
         }
 
         vm.prank(actor);
-        xmetro.autocompound(0, bytes(""));
+        xmetro.autocompound(expectedOut, block.timestamp + 1, bytes(""));
     }
 
     function autocompoundBatch(uint256 nSeed) external {
@@ -265,7 +265,7 @@ contract xMETROHandler is Test {
             metro.mint(address(adapter), expectedOut);
         }
 
-        xmetro.autocompoundBatch(users, 0, bytes(""));
+        xmetro.autocompoundBatch(users, expectedOut, block.timestamp + 1, bytes(""));
     }
 
     function creditLockedThor(uint256 actorSeed, uint256 amountSeed, uint256 monthsSeed) external {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -93,7 +93,7 @@ contract SwapAdapter is Ownable, Pausable, ReentrancyGuard {
      * - dexType=1: Uniswap V3 (pathData = packed path bytes)
      * @dev Security relies on balance-delta check on xMETRO.
      */
-    function swap(uint256 amountIn, uint256 minAmountOut, bytes calldata swapData)
+    function swap(uint256 amountIn, uint256 minAmountOut, uint256 deadline, bytes calldata swapData)
         external
         onlyXMetro
         whenNotPaused
@@ -101,6 +101,8 @@ contract SwapAdapter is Ownable, Pausable, ReentrancyGuard {
         returns (uint256 amountOut)
     {
         require(amountIn > 0, "SwapAdapter: zero amount");
+        require(minAmountOut > 0, "SwapAdapter: zero minOut");
+        require(deadline > block.timestamp, "SwapAdapter: expired");
 
         uint256 balanceBefore = METRO.balanceOf(xMETRO);
 
@@ -109,9 +111,9 @@ contract SwapAdapter is Ownable, Pausable, ReentrancyGuard {
         (uint8 dexType, bytes memory pathData) = abi.decode(swapData, (uint8, bytes));
 
         if (dexType == DEX_V2) {
-            _swapV2(amountIn, pathData);
+            _swapV2(amountIn, minAmountOut, deadline, pathData);
         } else if (dexType == DEX_V3) {
-            _swapV3(amountIn, pathData);
+            _swapV3(amountIn, minAmountOut, pathData);
         } else {
             revert("SwapAdapter: bad dexType");
         }
@@ -144,7 +146,7 @@ contract SwapAdapter is Ownable, Pausable, ReentrancyGuard {
     }
 
     /// @dev Uniswap V2 swap: pathData = abi.encode(address[] path).
-    function _swapV2(uint256 amountIn, bytes memory pathData) internal {
+    function _swapV2(uint256 amountIn, uint256 minAmountOut, uint256 deadline, bytes memory pathData) internal {
         address[] memory path = abi.decode(pathData, (address[]));
         require(path.length >= 2, "SwapAdapter: bad path");
 
@@ -155,17 +157,17 @@ contract SwapAdapter is Ownable, Pausable, ReentrancyGuard {
 
         IUniswapV2Router02(routerV2).swapExactTokensForTokens(
             amountIn,
-            0,
+            minAmountOut,
             path,
             xMETRO,
-            block.timestamp
+            deadline
         );
 
         USDC.forceApprove(routerV2, 0);
     }
 
     /// @dev Uniswap V3 swap: pathData = packed path bytes.
-    function _swapV3(uint256 amountIn, bytes memory pathData) internal {
+    function _swapV3(uint256 amountIn, uint256 minAmountOut, bytes memory pathData) internal {
         require(pathData.length >= 43, "SwapAdapter: bad path");
         require((pathData.length - 20) % 23 == 0, "SwapAdapter: bad path len");
 
@@ -178,7 +180,7 @@ contract SwapAdapter is Ownable, Pausable, ReentrancyGuard {
             path: pathData,
             recipient: xMETRO,
             amountIn: amountIn,
-            amountOutMinimum: 0
+            amountOutMinimum: minAmountOut
         });
         try IV3SwapRouter(routerV3).exactInput(paramsNoDeadline) returns (uint256) { }
         catch {

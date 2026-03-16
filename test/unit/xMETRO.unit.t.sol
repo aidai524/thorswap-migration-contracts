@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 /**
  * @title xMETRO.unit.t.sol
@@ -307,7 +307,7 @@ contract xMETROUnitTest is Test {
         uint256 beforeUser = xmetro.balanceOf(userA);
 
         vm.prank(userA);
-        uint256 out = xmetro.autocompound(minOut, bytes(""));
+        uint256 out = xmetro.autocompound(minOut, _deadline(), bytes(""));
 
         assertEq(out, minOut);
         assertEq(xmetro.balanceOf(userA) - beforeUser, minOut);
@@ -598,7 +598,7 @@ contract xMETROUnitTest is Test {
 
         vm.prank(userA);
         vm.expectRevert(bytes("xMETRO: only autocompound operator"));
-        xmetro.autocompoundBatch(users, minOut, bytes(""));
+        xmetro.autocompoundBatch(users, minOut, _deadline(), bytes(""));
     }
 
     function test_AutocompoundBatch_DistributesProRataByPending() public {
@@ -629,7 +629,7 @@ contract xMETROUnitTest is Test {
         uint256 beforeB = xmetro.balanceOf(userB);
 
         vm.prank(operator);
-        uint256 out = xmetro.autocompoundBatch(users, minOut, bytes(""));
+        uint256 out = xmetro.autocompoundBatch(users, minOut, _deadline(), bytes(""));
 
         assertEq(out, minOut);
         assertEq(xmetro.balanceOf(userA) - beforeA, 25 ether);
@@ -638,7 +638,7 @@ contract xMETROUnitTest is Test {
         assertEq(xmetro.claimable(userB), 0);
     }
 
-    function test_AutocompoundBatch_RoundingRemainder_StaysInContract() public {
+    function test_AutocompoundBatch_RoundingRemainder_GoesToLargestPendingUser() public {
         _stake(userA, 1 ether);
         _stake(userB, 2 ether);
 
@@ -666,13 +666,13 @@ contract xMETROUnitTest is Test {
         uint256 metroBefore = metro.balanceOf(address(xmetro));
 
         vm.prank(operator);
-        uint256 out = xmetro.autocompoundBatch(users, 10, bytes(""));
+        uint256 out = xmetro.autocompoundBatch(users, 10, _deadline(), bytes(""));
 
         assertEq(out, 10);
 
         assertEq(xmetro.balanceOf(userA) - beforeA, 3);
-        assertEq(xmetro.balanceOf(userB) - beforeB, 6);
-        assertEq(xmetro.totalSupply() - supplyBefore, 9);
+        assertEq(xmetro.balanceOf(userB) - beforeB, 7);
+        assertEq(xmetro.totalSupply() - supplyBefore, 10);
         assertEq(metro.balanceOf(address(xmetro)) - metroBefore, 10);
     }
 
@@ -703,7 +703,7 @@ contract xMETROUnitTest is Test {
         uint256 beforeB = xmetro.balanceOf(userB);
 
         vm.prank(operator);
-        uint256 out = xmetro.autocompoundBatch(users, minOut, bytes(""));
+        uint256 out = xmetro.autocompoundBatch(users, minOut, _deadline(), bytes(""));
 
         assertEq(out, minOut);
         assertEq(xmetro.balanceOf(userA) - beforeA, 25 ether);
@@ -829,5 +829,9 @@ contract xMETROUnitTest is Test {
         usdc.approve(address(xmetro), amount);
         vm.prank(distributor);
         xmetro.depositRewards(amount);
+    }
+
+    function _deadline() internal view returns (uint256) {
+        return block.timestamp + 1;
     }
 }

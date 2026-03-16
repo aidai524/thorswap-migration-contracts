@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 /**
  * @title GasThresholds.t.sol
@@ -27,9 +27,13 @@ contract MockSwapAdapter {
         xMETRO_ADDR = xmetro;
     }
 
-    function swap(uint256 amountIn, uint256 minAmountOut, bytes calldata) external returns (uint256 amountOut) {
+    function swap(uint256 amountIn, uint256 minAmountOut, uint256 deadline, bytes calldata)
+        external
+        returns (uint256 amountOut)
+    {
         require(msg.sender == xMETRO_ADDR, "MockSwapAdapter: only xMETRO");
         require(amountIn > 0, "MockSwapAdapter: zero amount");
+        require(deadline > block.timestamp, "MockSwapAdapter: expired");
 
         amountOut = amountIn * 1e12;
         require(amountOut >= minAmountOut, "MockSwapAdapter: slippage");
@@ -302,7 +306,7 @@ contract GasThresholdsForkTest is Test {
 
         uint256 gasStart = gasleft();
         vm.prank(operator);
-        xmetro.autocompoundBatch(batch, 0, "");
+        xmetro.autocompoundBatch(batch, 1, block.timestamp + 1, "");
         uint256 gasUsed = gasStart - gasleft();
 
         console2.log(string.concat("GAS_REPORT autocompoundBatch n=", vm.toString(n), " gas=", vm.toString(gasUsed)));

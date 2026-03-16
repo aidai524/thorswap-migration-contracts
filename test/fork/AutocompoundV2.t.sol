@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 /**
  * @title AutocompoundV2.t.sol
@@ -85,7 +85,7 @@ contract AutocompoundV2ForkTest is Test {
         uint256 beforeShares = xmetro.balanceOf(user);
         uint256 beforeWeth = IERC20(MAINNET_WETH).balanceOf(address(xmetro));
         vm.prank(user);
-        uint256 received = xmetro.autocompound(minOut, swapData);
+        uint256 received = xmetro.autocompound(minOut, block.timestamp + 1, swapData);
         uint256 afterShares = xmetro.balanceOf(user);
         uint256 afterWeth = IERC20(MAINNET_WETH).balanceOf(address(xmetro));
 

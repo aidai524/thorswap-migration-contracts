@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 /**
  * @title ThorMigrationEscrow.fuzz.t.sol
@@ -49,7 +49,7 @@ contract ThorMigrationEscrowFuzzTest is Test {
 
         escrow.setCaps(1_000_000 ether, 1_000_000 ether);
         escrow.setRatios(1e18, 1e18, 1e18);
-        escrow.setDeadlines(block.timestamp + 365 days, block.timestamp + 365 days);
+        escrow.setDeadlines(block.timestamp + 364 days, block.timestamp + 365 days);
         escrow.setYThorLimits(1_000_000 ether, block.timestamp + 365 days);
     }
 
@@ -91,7 +91,7 @@ contract ThorMigrationEscrowFuzzTest is Test {
 
         // Cap 10m so this amount will exceed it (ratio10M = 1e18 => mint10 == amountIn).
         escrow.setCaps(1, escrow.cap3M());
-        escrow.setDeadlines(block.timestamp + 365 days, block.timestamp + 365 days);
+        escrow.setDeadlines(block.timestamp + 364 days, block.timestamp + 365 days);
 
         thor.mint(user, amountIn);
         vm.prank(user);

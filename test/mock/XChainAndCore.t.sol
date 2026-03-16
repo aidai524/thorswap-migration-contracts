@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 /**
  * @title XChainAndCore.t.sol
@@ -62,7 +62,7 @@ contract XChainAndCoreTest is Test {
         escrow = new ThorMigrationEscrow(address(this), address(xmetro), address(thor), address(ythor), block.timestamp);
         escrow.setCaps(50_000_000 ether, 50_000_000 ether);
         escrow.setRatios(1_200_000_000_000_000_000, 1_000_000_000_000_000_000, 1_000_000_000_000_000_000);
-        escrow.setDeadlines(block.timestamp + 365 days, block.timestamp + 365 days);
+        escrow.setDeadlines(block.timestamp + 364 days, block.timestamp + 365 days);
         escrow.setYThorLimits(50_000_000 ether, block.timestamp + 365 days);
 
         xmetro.setMigrationEscrow(address(escrow));

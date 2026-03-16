@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 /**
  * @title SwapAdapter.validation.t.sol
@@ -79,6 +79,10 @@ contract SwapAdapterValidationTest is Test {
         usdc.approve(address(adapter), type(uint256).max);
     }
 
+    function _deadline() internal view returns (uint256) {
+        return block.timestamp + 1;
+    }
+
     function test_Constructor_ZeroAddr_Revert() public {
         vm.expectRevert(bytes("SwapAdapter: zero addr"));
         new SwapAdapter(address(0), address(metro), xmetro, address(routerV2), address(routerV3), owner);
@@ -99,7 +103,7 @@ contract SwapAdapterValidationTest is Test {
     function test_OnlyXMetro() public {
         bytes memory swapData = abi.encode(uint8(0), bytes(""));
         vm.expectRevert(bytes("SwapAdapter: only xMETRO"));
-        adapter.swap(1, 0, swapData);
+        adapter.swap(1, 0, _deadline(), swapData);
     }
 
     function test_Pause_Unpause_OnlyOwner() public {
@@ -126,7 +130,7 @@ contract SwapAdapterValidationTest is Test {
 
         vm.prank(xmetro);
         vm.expectRevert(bytes("SwapAdapter: bad path"));
-        adapter.swap(1e6, 0, swapData);
+        adapter.swap(1e6, 1, _deadline(), swapData);
     }
 
     function test_V3_BadPath_Revert() public {
@@ -139,7 +143,7 @@ contract SwapAdapterValidationTest is Test {
 
         vm.prank(xmetro);
         vm.expectRevert(bytes("SwapAdapter: bad path"));
-        adapter.swap(1e6, 0, swapData);
+        adapter.swap(1e6, 1, _deadline(), swapData);
     }
 
     function test_RescueTokens_NotRequirePaused() public {
@@ -175,7 +179,7 @@ contract SwapAdapterValidationTest is Test {
         _fundAndApproveXMetro(1e6);
         vm.prank(xmetro);
         vm.expectRevert();
-        adapter.swap(1e6, 0, swapData);
+        adapter.swap(1e6, 0, _deadline(), swapData);
     }
 
     function test_Swap_ZeroAmount_Revert() public {
@@ -186,14 +190,14 @@ contract SwapAdapterValidationTest is Test {
 
         vm.prank(xmetro);
         vm.expectRevert(bytes("SwapAdapter: zero amount"));
-        adapter.swap(0, 0, swapData);
+        adapter.swap(0, 0, _deadline(), swapData);
     }
 
     function test_Swap_BadDexType_Revert() public {
         _fundAndApproveXMetro(1e6);
         vm.prank(xmetro);
         vm.expectRevert(bytes("SwapAdapter: bad dexType"));
-        adapter.swap(1e6, 0, abi.encode(uint8(99), bytes("")));
+        adapter.swap(1e6, 1, _deadline(), abi.encode(uint8(99), bytes("")));
     }
 
     function test_Swap_V2_Success_MintsToXMetro_AndAllowanceReset() public {
@@ -211,7 +215,7 @@ contract SwapAdapterValidationTest is Test {
         emit Swapped(amountIn, expectedOut, DEX_V2);
 
         vm.prank(xmetro);
-        uint256 out = adapter.swap(amountIn, expectedOut, swapData);
+        uint256 out = adapter.swap(amountIn, expectedOut, _deadline(), swapData);
 
         assertEq(out, expectedOut);
         assertEq(metro.balanceOf(xmetro), expectedOut);
@@ -233,7 +237,7 @@ contract SwapAdapterValidationTest is Test {
         _fundAndApproveXMetro(amountIn);
         vm.prank(xmetro);
         vm.expectRevert(bytes("SwapAdapter: slippage"));
-        adapter.swap(amountIn, out + 1, swapData);
+        adapter.swap(amountIn, out + 1, _deadline(), swapData);
     }
 
     function test_Swap_V2_RevertsIfRouterDoesNotCreditXMetro() public {
@@ -259,7 +263,7 @@ contract SwapAdapterValidationTest is Test {
 
         vm.prank(xmetro);
         vm.expectRevert(bytes("SwapAdapter: slippage"));
-        localAdapter.swap(amountIn, 1, swapData);
+        localAdapter.swap(amountIn, 1, _deadline(), swapData);
     }
 
     function test_Swap_V3_SingleHop_Success_AndAllowanceReset() public {
@@ -281,7 +285,7 @@ contract SwapAdapterValidationTest is Test {
         emit Swapped(amountIn, expectedOut, DEX_V3);
 
         vm.prank(xmetro);
-        uint256 out = adapter.swap(amountIn, expectedOut, swapData);
+        uint256 out = adapter.swap(amountIn, expectedOut, _deadline(), swapData);
 
         assertEq(out, expectedOut);
         assertEq(metro.balanceOf(xmetro), expectedOut);
@@ -315,7 +319,7 @@ contract SwapAdapterValidationTest is Test {
 
         vm.prank(xmetro);
         vm.expectRevert(bytes("SwapAdapter: slippage"));
-        localAdapter.swap(amountIn, 1, swapData);
+        localAdapter.swap(amountIn, 1, _deadline(), swapData);
     }
 
     function test_Swap_V3_MultiHop_Success() public {
@@ -336,7 +340,7 @@ contract SwapAdapterValidationTest is Test {
 
         _fundAndApproveXMetro(amountIn);
         vm.prank(xmetro);
-        uint256 out = adapter.swap(amountIn, expectedOut, swapData);
+        uint256 out = adapter.swap(amountIn, expectedOut, _deadline(), swapData);
 
         assertEq(out, expectedOut);
         assertEq(metro.balanceOf(xmetro), expectedOut);
@@ -353,7 +357,7 @@ contract SwapAdapterValidationTest is Test {
         _fundAndApproveXMetro(amountIn);
         vm.prank(xmetro);
         vm.expectRevert(bytes("SwapAdapter: bad path in"));
-        adapter.swap(amountIn, 0, swapData);
+        adapter.swap(amountIn, 1, _deadline(), swapData);
     }
 
     function test_V2_BadRouteOut_Revert() public {
@@ -367,7 +371,7 @@ contract SwapAdapterValidationTest is Test {
         _fundAndApproveXMetro(amountIn);
         vm.prank(xmetro);
         vm.expectRevert(bytes("SwapAdapter: bad path out"));
-        adapter.swap(amountIn, 0, swapData);
+        adapter.swap(amountIn, 1, _deadline(), swapData);
     }
 
     function test_V2_BadPathLen_Revert() public {
@@ -380,7 +384,7 @@ contract SwapAdapterValidationTest is Test {
         _fundAndApproveXMetro(amountIn);
         vm.prank(xmetro);
         vm.expectRevert(bytes("SwapAdapter: bad path"));
-        adapter.swap(amountIn, 0, swapData);
+        adapter.swap(amountIn, 1, _deadline(), swapData);
     }
 
     function test_V3_BadPathLen_Revert() public {
@@ -392,7 +396,7 @@ contract SwapAdapterValidationTest is Test {
 
         vm.prank(xmetro);
         vm.expectRevert(bytes("SwapAdapter: bad path len"));
-        adapter.swap(amountIn, 0, swapData);
+        adapter.swap(amountIn, 1, _deadline(), swapData);
     }
 
     function test_V3_BadPathInOut_Revert() public {
@@ -408,7 +412,7 @@ contract SwapAdapterValidationTest is Test {
 
         vm.prank(xmetro);
         vm.expectRevert(bytes("SwapAdapter: bad path in"));
-        adapter.swap(amountIn, 0, _encodeV3(path1));
+        adapter.swap(amountIn, 1, _deadline(), _encodeV3(path1));
 
         address[] memory tokens2 = new address[](2);
         tokens2[0] = address(usdc);
@@ -419,7 +423,7 @@ contract SwapAdapterValidationTest is Test {
 
         vm.prank(xmetro);
         vm.expectRevert(bytes("SwapAdapter: bad path out"));
-        adapter.swap(amountIn, 0, _encodeV3(path2));
+        adapter.swap(amountIn, 1, _deadline(), _encodeV3(path2));
     }
 
     function test_NonReentrant_RouterCallsBackIntoXMetro_Revert() public {
@@ -448,7 +452,7 @@ contract SwapAdapterValidationTest is Test {
         bytes memory swapData = abi.encode(uint8(DEX_V2), abi.encode(path));
 
         vm.expectRevert();
-        xmetroContract.callSwap(amountIn, 0, swapData);
+        xmetroContract.callSwap(amountIn, 1, swapData);
     }
 
     function test_ForceApprove_CompatibleWithRequireZeroApproveToken() public {
@@ -479,12 +483,12 @@ contract SwapAdapterValidationTest is Test {
         bytes memory swapData = abi.encode(uint8(DEX_V2), abi.encode(path));
 
         vm.prank(xmetro);
-        localAdapter.swap(amountIn, 0, swapData);
+        localAdapter.swap(amountIn, 1, _deadline(), swapData);
 
         usdtLike.setAllowanceForTest(address(localAdapter), address(router2), 7);
 
         vm.prank(xmetro);
-        localAdapter.swap(amountIn, 0, swapData);
+        localAdapter.swap(amountIn, 1, _deadline(), swapData);
         assertEq(metro2.balanceOf(xmetro), router2.quoteOut(amountIn) * 2);
     }
 }
@@ -622,12 +626,12 @@ contract XMetroCaller {
 
     /// @notice External swap call entry.
     function callSwap(uint256 amountIn, uint256 minOut, bytes calldata swapData) external returns (uint256) {
-        return SwapAdapter(adapter).swap(amountIn, minOut, swapData);
+        return SwapAdapter(adapter).swap(amountIn, minOut, block.timestamp + 1, swapData);
     }
 
     /// @notice Called by router to attempt reentrancy (should hit nonReentrant).
     function reenterSwap(uint256 amountIn, bytes calldata swapData) external {
-        SwapAdapter(adapter).swap(amountIn, 0, swapData);
+        SwapAdapter(adapter).swap(amountIn, 1, block.timestamp + 1, swapData);
     }
 }
 

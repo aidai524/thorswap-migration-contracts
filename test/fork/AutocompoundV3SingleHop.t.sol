@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 /**
  * @title AutocompoundV3SingleHop.t.sol
@@ -73,7 +73,7 @@ contract AutocompoundV3SingleHopForkTest is Test {
 
         uint256 beforeShares = xmetro.balanceOf(user);
         vm.prank(user);
-        uint256 received = xmetro.autocompound(minOut, swapData);
+        uint256 received = xmetro.autocompound(minOut, block.timestamp + 1, swapData);
         uint256 afterShares = xmetro.balanceOf(user);
 
         assertGt(afterShares, beforeShares, "freeShares should increase");

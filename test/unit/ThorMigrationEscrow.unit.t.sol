@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 /**
  * @title ThorMigrationEscrow.unit.t.sol
@@ -50,7 +50,7 @@ contract ThorMigrationEscrowUnitTest is Test {
 
         escrow.setCaps(50_000_000 ether, 50_000_000 ether);
         escrow.setRatios(1_200_000_000_000_000_000, 1_000_000_000_000_000_000, 1_000_000_000_000_000_000);
-        escrow.setDeadlines(block.timestamp + 365 days, block.timestamp + 365 days);
+        escrow.setDeadlines(block.timestamp + 364 days, block.timestamp + 365 days);
         escrow.setYThorLimits(50_000_000 ether, block.timestamp + 365 days);
     }
 
@@ -123,7 +123,7 @@ contract ThorMigrationEscrowUnitTest is Test {
         ThorMigrationEscrow e = new ThorMigrationEscrow(owner, address(xmetro), address(thor), address(ythor), block.timestamp);
         e.setRatios(1e18, 1e18, 1e18);
         e.setCaps(1 ether, 1 ether);
-        e.setDeadlines(block.timestamp + 365 days, block.timestamp + 365 days);
+        e.setDeadlines(block.timestamp + 364 days, block.timestamp + 365 days);
 
         ythor.mint(user, 1 ether);
         vm.prank(user);
@@ -135,8 +135,9 @@ contract ThorMigrationEscrowUnitTest is Test {
     }
 
     function test_MigrateYThor_Expired_Revert() public {
-        escrow.setYThorLimits(50_000_000 ether, block.timestamp);
-        vm.warp(block.timestamp + 1);
+        uint256 expiredDeadline = block.timestamp + 1;
+        escrow.setYThorLimits(50_000_000 ether, expiredDeadline);
+        vm.warp(expiredDeadline + 1);
 
         ythor.mint(user, 1 ether);
         vm.prank(user);
@@ -196,7 +197,7 @@ contract ThorMigrationEscrowUnitTest is Test {
 
     function test_MigrateThor_Success_TransfersToken_AndCallsXmetro() public {
         escrow.setMigrationStartTime(block.timestamp);
-        escrow.setDeadlines(block.timestamp + 365 days, block.timestamp + 365 days);
+        escrow.setDeadlines(block.timestamp + 364 days, block.timestamp + 365 days);
 
         uint256 amountIn = 10 ether;
         thor.mint(user, amountIn);
@@ -220,7 +221,7 @@ contract ThorMigrationEscrowUnitTest is Test {
         ThorMigrationEscrow e = new ThorMigrationEscrow(owner, address(xmetro), address(thor), address(ythor), block.timestamp);
         e.setCaps(50_000_000 ether, 50_000_000 ether);
         e.setRatios(e.cap10M() + 1, 1e18, 1e18);
-        e.setDeadlines(block.timestamp + 365 days, block.timestamp + 365 days);
+        e.setDeadlines(block.timestamp + 364 days, block.timestamp + 365 days);
         e.setYThorLimits(50_000_000 ether, block.timestamp + 365 days);
 
         uint256 amountIn = 1 ether;
@@ -240,7 +241,7 @@ contract ThorMigrationEscrowUnitTest is Test {
 
     function test_MigrateThor3m_RevertWhen10mAvailable() public {
         escrow.setMigrationStartTime(block.timestamp);
-        escrow.setDeadlines(block.timestamp + 365 days, block.timestamp + 365 days);
+        escrow.setDeadlines(block.timestamp + 364 days, block.timestamp + 365 days);
 
         uint256 amountIn = 1 ether;
         thor.mint(user, amountIn);
@@ -274,7 +275,7 @@ contract ThorMigrationEscrowUnitTest is Test {
         ThorMigrationEscrow e = new ThorMigrationEscrow(owner, address(xmetro), address(thor), address(ythor), block.timestamp);
         e.setCaps(1 ether, 1 ether);
         e.setRatios(1e18, 1e18, 1);
-        e.setDeadlines(block.timestamp + 365 days, block.timestamp + 365 days);
+        e.setDeadlines(block.timestamp + 364 days, block.timestamp + 365 days);
         e.setYThorLimits(1 ether, block.timestamp + 365 days);
 
         ythor.mint(user, 1);

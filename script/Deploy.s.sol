@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 /**
  * @title Deploy.s.sol
@@ -66,6 +66,10 @@ contract Deploy is Script {
         uint256 deadline10M = vm.envUint("DEADLINE_10M");
         uint256 deadline3M = vm.envUint("DEADLINE_3M");
         uint256 deadlineYThor = vm.envUint("DEADLINE_YTHOR");
+
+        require(deadline3M > deadline10M, "Deploy: bad deadline order");
+        require(deadline10M > migrationStartTime && deadline3M > migrationStartTime, "Deploy: THOR deadline before start");
+        require(deadlineYThor > migrationStartTime, "Deploy: yTHOR deadline before start");
 
         Addresses memory a;
 

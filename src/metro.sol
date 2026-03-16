@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 import { OFT } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oft/OFT.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
@@ -30,6 +30,7 @@ contract MetroTokenOFT is OFT, ERC20Permit {
      * @notice Set/unset a minter (onlyOwner).
      */
     function setMinter(address minter, bool status) external onlyOwner {
+        require(isMinter[minter] != status, "MetroToken: same status");
         isMinter[minter] = status;
         emit MinterStatusUpdated(minter, status);
     }
@@ -39,6 +40,8 @@ contract MetroTokenOFT is OFT, ERC20Permit {
      */
     function mint(address to, uint256 amount) external {
         require(isMinter[msg.sender], "MetroToken: not minter");
+        require(to != address(0), "MetroToken: bad to");
+        require(amount > 0, "MetroToken: zero amount");
         _mint(to, amount);
     }
 }

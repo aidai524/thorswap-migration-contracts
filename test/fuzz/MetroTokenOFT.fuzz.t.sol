@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 import "forge-std/Test.sol";
 
@@ -20,9 +20,11 @@ contract MetroTokenOFTFuzzTest is Test {
     function testFuzz_Mint_RespectsMinterAllowlist(address minter, address to, uint256 amount, bool allowed) public {
         vm.assume(minter != address(0));
         vm.assume(to != address(0));
-        amount = bound(amount, 0, 1e36);
+        amount = bound(amount, 1, 1e36);
 
-        metro.setMinter(minter, allowed);
+        if (allowed) {
+            metro.setMinter(minter, true);
+        }
 
         if (!allowed) {
             vm.prank(minter);
@@ -44,11 +46,14 @@ contract MetroTokenOFTFuzzTest is Test {
     function testFuzz_SetMinter_Toggles(address minter, bool a, bool b) public {
         vm.assume(minter != address(0));
 
-        metro.setMinter(minter, a);
+        if (a) {
+            metro.setMinter(minter, true);
+        }
         assertEq(metro.isMinter(minter), a);
 
-        metro.setMinter(minter, b);
+        if (a != b) {
+            metro.setMinter(minter, b);
+        }
         assertEq(metro.isMinter(minter), b);
     }
 }
-

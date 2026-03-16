@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 /**
  * @title xMETRO.fuzz.t.sol
@@ -99,7 +99,7 @@ contract xMETROFuzzTest is Test {
         uint256 usdcBefore = usdc.balanceOf(address(xmetro));
 
         vm.prank(operator);
-        uint256 out = xmetro.autocompoundBatch(users, minOut, bytes(""));
+        uint256 out = xmetro.autocompoundBatch(users, minOut, _deadline(), bytes(""));
 
         uint256 supplyAfter = xmetro.totalSupply();
         uint256 metroAfter = metro.balanceOf(address(xmetro));
@@ -109,8 +109,7 @@ contract xMETROFuzzTest is Test {
         assertEq(metroAfter - metroBefore, out);
         assertEq(usdcBefore - usdcAfter, totalPending);
 
-        // Due to pro-rata floor division, total minted shares must never exceed received METRO.
-        assertLe(supplyAfter - supplyBefore, out);
+        assertEq(supplyAfter - supplyBefore, out);
 
         // Due to reward debt rounding, claimable can be 0 or a tiny dust value.
         assertLe(xmetro.claimable(userA), 1);
@@ -338,5 +337,9 @@ contract xMETROFuzzTest is Test {
         adapter = new MockSwapAdapter(address(usdc), address(metro), mul, div);
         adapter.setXMetro(address(xmetro));
         xmetro.setSwapAdapter(address(adapter));
+    }
+
+    function _deadline() internal view returns (uint256) {
+        return block.timestamp + 1;
     }
 }

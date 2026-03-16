@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
@@ -108,7 +109,7 @@ contract ThorMigrationEscrow is Ownable, Pausable, ReentrancyGuard {
         require(cap10M != 0 && cap3M != 0, "ThorEscrow: caps not set");
         require(block.timestamp <= deadline10M, "ThorEscrow: 10m expired");
 
-        uint256 mintAmount = (amountIn * ratio10M) / 1e18;
+        uint256 mintAmount = Math.mulDiv(amountIn, ratio10M, 1e18);
         require(mintAmount > 0, "ThorEscrow: zero mint");
         require(minted10M + mintAmount <= cap10M, "ThorEscrow: 10m cap");
 
@@ -123,7 +124,7 @@ contract ThorMigrationEscrow is Ownable, Pausable, ReentrancyGuard {
 
     /**
      * @notice Migrate THOR using the 3-month bucket.
-     * @dev Only allowed when the 10m bucket is not available for this `amountIn` (expired or cap exceeded).
+     * @dev Only allowed when the full amount no longer fits in the 10m bucket.
      */
     function migrateThor3m(uint256 amountIn) external nonReentrant whenNotPaused {
         require(block.timestamp >= migrationStartTime, "ThorEscrow: not started");
@@ -131,23 +132,44 @@ contract ThorMigrationEscrow is Ownable, Pausable, ReentrancyGuard {
 
         require(cap10M != 0 && cap3M != 0, "ThorEscrow: caps not set");
 
-        uint256 potentialMint10 = (amountIn * ratio10M) / 1e18;
-        bool tenAvailable = (block.timestamp <= deadline10M) && (minted10M + potentialMint10 <= cap10M);
-        require(!tenAvailable, "ThorEscrow: 10m available");
+        uint256 remainingMint10 = _remainingMintCapacity10M();
+        uint256 fullMint10 = Math.mulDiv(amountIn, ratio10M, 1e18);
+        if (remainingMint10 != 0 && fullMint10 <= remainingMint10) {
+            revert("ThorEscrow: 10m available");
+        }
+
+        uint256 amount10In;
+        uint256 mint10;
+        if (remainingMint10 != 0) {
+            amount10In = Math.min(amountIn, _maxAmountForMintCapacity(remainingMint10, ratio10M));
+            mint10 = Math.mulDiv(amount10In, ratio10M, 1e18);
+            if (mint10 > remainingMint10) {
+                revert("ThorEscrow: 10m cap");
+            }
+        }
 
         require(block.timestamp <= deadline3M, "ThorEscrow: 3m expired");
 
-        uint256 mintAmount = (amountIn * ratio3M) / 1e18;
-        require(mintAmount > 0, "ThorEscrow: zero mint");
-        require(minted3M + mintAmount <= cap3M, "ThorEscrow: 3m cap");
+        uint256 amount3In = amountIn - amount10In;
+        uint256 mint3 = Math.mulDiv(amount3In, ratio3M, 1e18);
+        require(mint3 > 0, "ThorEscrow: zero mint");
+        require(minted3M + mint3 <= cap3M, "ThorEscrow: 3m cap");
 
-        minted3M += mintAmount;
+        if (mint10 > 0) {
+            minted10M += mint10;
+        }
+        minted3M += mint3;
 
         thorToken.safeTransferFrom(msg.sender, address(this), amountIn);
 
-        xMETRO.creditLockedTHORFromMigration(msg.sender, mintAmount, 3);
+        if (mint10 > 0) {
+            xMETRO.creditLockedTHORFromMigration(msg.sender, mint10, 10);
+            emit MigratedThor(msg.sender, amount10In, mint10, 10);
+        }
 
-        emit MigratedThor(msg.sender, amountIn, mintAmount, 3);
+        xMETRO.creditLockedTHORFromMigration(msg.sender, mint3, 3);
+
+        emit MigratedThor(msg.sender, amount3In, mint3, 3);
     }
 
     /**
@@ -160,7 +182,7 @@ contract ThorMigrationEscrow is Ownable, Pausable, ReentrancyGuard {
         require(capYThor != 0, "ThorEscrow: ythor cap not set");
         require(block.timestamp <= deadlineYThor, "ThorEscrow: ythor expired");
 
-        uint256 mintAmount = (amountIn * ratioYThor) / 1e18;
+        uint256 mintAmount = Math.mulDiv(amountIn, ratioYThor, 1e18);
         require(mintAmount > 0, "ThorEscrow: zero mint");
 
         require(mintedYThor + mintAmount <= capYThor, "ThorEscrow: ythor cap");
@@ -183,6 +205,8 @@ contract ThorMigrationEscrow is Ownable, Pausable, ReentrancyGuard {
     /// @notice Set THOR bucket deadlines (onlyOwner).
     function setDeadlines(uint256 newDeadline10M, uint256 newDeadline3M) external onlyOwner {
         require(newDeadline10M >= block.timestamp && newDeadline3M >= block.timestamp, "ThorEscrow: bad deadline");
+        require(newDeadline3M > newDeadline10M, "ThorEscrow: bad deadline order");
+        require(newDeadline10M > migrationStartTime && newDeadline3M > migrationStartTime, "ThorEscrow: deadline before start");
         deadline10M = newDeadline10M;
         deadline3M = newDeadline3M;
         emit DeadlinesUpdated(newDeadline10M, newDeadline3M);
@@ -210,6 +234,7 @@ contract ThorMigrationEscrow is Ownable, Pausable, ReentrancyGuard {
     function setYThorLimits(uint256 newCapYThor, uint256 newDeadlineYThor) external onlyOwner {
         require(newCapYThor > 0, "ThorEscrow: bad cap");
         require(newDeadlineYThor >= block.timestamp, "ThorEscrow: bad deadline");
+        require(newDeadlineYThor > migrationStartTime, "ThorEscrow: deadline before start");
         capYThor = newCapYThor;
         deadlineYThor = newDeadlineYThor;
         emit YThorLimitsUpdated(newCapYThor, newDeadlineYThor);
@@ -232,6 +257,17 @@ contract ThorMigrationEscrow is Ownable, Pausable, ReentrancyGuard {
         require(to != address(0), "ThorEscrow: bad to");
         IERC20(token).safeTransfer(to, amount);
         emit TokensRescued(token, to, amount);
+    }
+
+    function _remainingMintCapacity10M() internal view returns (uint256 remainingMint10) {
+        if (block.timestamp > deadline10M) return 0;
+        if (minted10M >= cap10M) return 0;
+        return cap10M - minted10M;
+    }
+
+    function _maxAmountForMintCapacity(uint256 remainingMint, uint256 ratio) internal pure returns (uint256) {
+        if (remainingMint == 0) return 0;
+        return Math.mulDiv(remainingMint + 1, 1e18, ratio, Math.Rounding.Ceil) - 1;
     }
 
 }

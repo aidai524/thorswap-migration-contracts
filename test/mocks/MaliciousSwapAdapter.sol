@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.22;
+pragma solidity 0.8.30;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -45,8 +45,12 @@ contract MaliciousSwapAdapter {
         attackSucceeded = false;
     }
 
-    function swap(uint256 amountIn, uint256 minAmountOut, bytes calldata) external returns (uint256 amountOut) {
+    function swap(uint256 amountIn, uint256 minAmountOut, uint256 deadline, bytes calldata)
+        external
+        returns (uint256 amountOut)
+    {
         require(msg.sender == xMETRO, "only xMETRO");
+        require(deadline > block.timestamp, "expired");
         tokenIn.safeTransferFrom(msg.sender, address(this), amountIn);
 
         _maybeAttack();
