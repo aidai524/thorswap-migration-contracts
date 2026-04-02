@@ -210,6 +210,19 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
         mintedShares = amount;
     }
 
+    /// @notice Stake METRO and enable autocompounding in a single transaction.
+    function stakeAndEnableAutocompound(uint256 amount) external nonReentrant whenNotPaused returns (uint256 mintedShares) {
+        require(amount > 0, "xMETRO: zero amount");
+
+        IERC20(address(METRO)).safeTransferFrom(msg.sender, address(this), amount);
+
+        _mintFreeShares(msg.sender, amount);
+        mintedShares = amount;
+
+        autocompoundEnabled[msg.sender] = true;
+        emit AutocompoundEnabledUpdated(msg.sender, true);
+    }
+
     /// @notice Request unstake for free shares; burns shares immediately and starts a cooldown.
     function requestUnstake(uint256 amount) external nonReentrant whenNotPaused {
         require(amount > 0, "xMETRO: zero amount");
