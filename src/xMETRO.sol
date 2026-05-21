@@ -163,6 +163,7 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
     event LockedVestingCredited(address indexed user, uint256 amount, uint64 startTime, uint64 duration);
     event RewardsDeposited(address indexed payer, uint256 amount);
     event RewardClaimed(address indexed user, uint256 amount);
+    event Staked(address indexed user, uint256 amount, uint256 mintedShares);
 
     event UnstakeRequested(address indexed user, UnstakeSource indexed source, uint256 amount, uint64 unlockTime);
     event Withdrawn(address indexed user, UnstakeSource indexed source, uint256 amount);
@@ -208,6 +209,8 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
 
         _mintFreeShares(msg.sender, amount);
         mintedShares = amount;
+
+        emit Staked(msg.sender, amount, mintedShares);
     }
 
     /// @notice Stake METRO and enable autocompounding in a single transaction.
@@ -218,6 +221,8 @@ contract xMETRO is ERC20, Pausable, ReentrancyGuard, Ownable {
 
         _mintFreeShares(msg.sender, amount);
         mintedShares = amount;
+
+        emit Staked(msg.sender, amount, mintedShares);
 
         autocompoundEnabled[msg.sender] = true;
         emit AutocompoundEnabledUpdated(msg.sender, true);
